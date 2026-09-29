@@ -1,0 +1,361 @@
+.page {
+  --ink: #233b32;
+  --muted: #68766e;
+  --line: #dfe5df;
+  --leaf: #557f67;
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(440px, 0.92fr);
+  min-height: 100vh;
+  background: #fbfcfa;
+  color: var(--ink);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.story {
+  position: relative;
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 48px clamp(36px, 7vw, 104px) 40px;
+  background-color: #e9eee5;
+  background-image: repeating-linear-gradient(123deg, transparent 0, transparent 78px, rgb(77 108 79 / 4%) 79px, transparent 81px), repeating-linear-gradient(33deg, transparent 0, transparent 118px, rgb(77 108 79 / 4%) 119px, transparent 121px);
+}
+
+.story::after {
+  position: absolute;
+  right: -170px;
+  bottom: 13%;
+  width: 430px;
+  height: 430px;
+  border: 1px solid rgb(85 127 103 / 19%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 26px rgb(85 127 103 / 4%), 0 0 0 54px rgb(85 127 103 / 4%), 0 0 0 82px rgb(85 127 103 / 4%);
+  content: '';
+}
+
+.brand,
+.mobileBrand {
+  z-index: 1;
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 25px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.brandMark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--leaf);
+  border-radius: 50%;
+  color: var(--leaf);
+  font-family: Georgia, serif;
+  font-size: 19px;
+  font-weight: 400;
+}
+
+.brandDot {
+  color: #c46a48;
+}
+
+.storyCopy {
+  z-index: 1;
+  max-width: 520px;
+  margin-top: -30px;
+  animation: enter 650ms ease-out both;
+}
+
+.eyebrow {
+  color: var(--leaf);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+
+.storyCopy h1 {
+  max-width: 510px;
+  margin: 22px 0 18px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(45px, 5vw, 67px);
+  font-weight: 400;
+  line-height: 1.05;
+}
+
+.storyCopy h1 em {
+  color: var(--leaf);
+  font-weight: 400;
+}
+
+.storyCopy p {
+  max-width: 350px;
+  margin: 0;
+  color: #58675e;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.fabricNote {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #58675e;
+  font-size: 12px;
+}
+
+.fabricLine {
+  width: 30px;
+  height: 1px;
+  background: var(--leaf);
+}
+
+.fabricIndex {
+  margin-left: auto;
+  color: #879288;
+  font-size: 10px;
+}
+
+.formSide {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 56px 48px;
+}
+
+.formWrap {
+  width: min(100%, 390px);
+  animation: enter 650ms 100ms ease-out both;
+}
+
+.formHeading {
+  margin-bottom: 37px;
+}
+
+.formHeading h2 {
+  margin: 13px 0 7px;
+  color: #263b31;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 38px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.formHeading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 23px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: #344b3e;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field input {
+  width: 100%;
+  height: 49px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  outline: none;
+  background: #fff;
+  color: #25392f;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.field > input,
+.passwordInput input {
+  padding: 0 14px;
+}
+
+.field input::placeholder {
+  color: #9aa39d;
+}
+
+.field input:focus {
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 3px rgb(85 127 103 / 12%);
+}
+
+.passwordInput {
+  position: relative;
+  display: block;
+}
+
+.passwordInput input {
+  padding-right: 78px;
+}
+
+.visibilityButton {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  padding: 5px 0;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--leaf);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.formOptions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: -5px;
+  font-size: 12px;
+}
+
+.remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #58675e;
+  cursor: pointer;
+}
+
+.remember input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--leaf);
+}
+
+.helpLink {
+  color: var(--leaf);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.helpLink:hover {
+  text-decoration: underline;
+}
+
+.status {
+  margin: -5px 0 0;
+  color: #9b4636;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.submit {
+  display: flex;
+  height: 51px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 17px;
+  border: 0;
+  border-radius: 3px;
+  background: #365b48;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 150ms ease;
+}
+
+.submit:hover {
+  background: #294936;
+}
+
+.submit:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.submit span {
+  font-size: 17px;
+}
+
+.footer {
+  margin: 28px 0 0;
+  color: #89948c;
+  font-size: 11px;
+  text-align: center;
+}
+
+.mobileBrand {
+  display: none;
+}
+
+@keyframes enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 850px) {
+  .page {
+    grid-template-columns: minmax(300px, 0.85fr) minmax(390px, 1fr);
+  }
+
+  .story {
+    padding-right: 36px;
+    padding-left: 36px;
+  }
+
+  .formSide {
+    padding-right: 32px;
+    padding-left: 32px;
+  }
+}
+
+@media (max-width: 680px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .story {
+    display: none;
+  }
+
+  .formSide {
+    min-height: 100svh;
+    align-content: center;
+    justify-items: center;
+    padding: 28px 24px;
+  }
+
+  .mobileBrand {
+    display: inline-flex;
+    margin-bottom: 48px;
+  }
+
+  .formWrap {
+    width: min(100%, 390px);
+  }
+
+  .formHeading h2 {
+    font-size: 35px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storyCopy,
+  .formWrap {
+    animation: none;
+  }
+}
