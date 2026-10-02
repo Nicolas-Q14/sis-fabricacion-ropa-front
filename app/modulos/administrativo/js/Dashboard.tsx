@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { User } from '@supabase/supabase-js';
 import { createClient } from '../../../../lib/supabase/client';
 import styles from '../css/dashboard.module.css';
 
@@ -53,19 +54,70 @@ function formatDate() {
   }).format(new Date());
 }
 
+function getDisplayName(user: User | null) {
+  const fullName = user?.user_metadata?.full_name;
+  const name = user?.user_metadata?.name;
+
+  if (typeof fullName === 'string' && fullName.trim()) return fullName.trim();
+  if (typeof name === 'string' && name.trim()) return name.trim();
+  return user?.email ?? 'Tu cuenta';
+}
+
+function getInitials(displayName: string, email?: string) {
+  const name = displayName === email ? displayName.split('@')[0] : displayName;
+  return name
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || '??';
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const orders = initialOrders;
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [profileError, setProfileError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
+  const displayName = getDisplayName(user);
+  const initials = getInitials(displayName, user?.email);
   const filteredOrders = useMemo(() => orders.filter((order) => {
     const matchesSearch = `${order.id} ${order.customer} ${order.item}`
       .toLowerCase()
       .includes(search.toLowerCase());
     return matchesSearch && (statusFilter === 'Todos' || order.status === statusFilter);
   }), [orders, search, statusFilter]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    createClient().auth.getUser()
+      .then(({ data, error }) => {
+        if (!isMounted) return;
+
+        if (error) {
+          setProfileError('No se pudo cargar el usuario autenticado.');
+          return;
+        }
+
+        setUser(data.user);
+      })
+      .catch(() => {
+        if (isMounted) setProfileError('No se pudo cargar el usuario autenticado.');
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingProfile(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -118,8 +170,8 @@ export default function Dashboard() {
             <span aria-hidden="true">↗</span>
           </div>
           <button className={styles.profile} disabled={isSigningOut} onClick={handleSignOut} type="button">
-            <span className={styles.profileAvatar}>MG</span>
-            <span className={styles.profileText}><strong>María García</strong><span role="status">{signOutError || (isSigningOut ? 'Cerrando sesión…' : 'Cerrar sesión')}</span></span>
+            <span className={styles.profileAvatar}>{initials}</span>
+            <span className={styles.profileText}><strong>{displayName}</strong><span role="status">{profileError || signOutError || (isLoadingProfile ? 'Cargando perfil…' : isSigningOut ? 'Cerrando sesión…' : 'Cerrar sesión')}</span></span>
             <span className={styles.profileMenu} aria-hidden="true">↗</span>
           </button>
         </div>
@@ -133,7 +185,7 @@ export default function Dashboard() {
             <button className={styles.notification} aria-label="Notificaciones">
               <span aria-hidden="true">♧</span><i />
             </button>
-            <span className={styles.topAvatar} aria-label="María García">MG</span>
+            <span className={styles.topAvatar} aria-label={displayName}>{initials}</span>
           </div>
         </header>
 
@@ -141,7 +193,7 @@ export default function Dashboard() {
           <div className={styles.welcomeRow}>
             <div>
               <div className={styles.overline}>MARTES, 29 DE SEPTIEMBRE</div>
-              <h1>Buenos días, María <span aria-hidden="true">✳</span></h1>
+              <h1>Buenos días, {displayName} <span aria-hidden="true">✳</span></h1>
               <p>Esto es lo que está pasando en tu operación hoy.</p>
             </div>
             <a className={styles.primaryAction} href="#pedidos"><span aria-hidden="true">＋</span> Nuevo pedido</a>
