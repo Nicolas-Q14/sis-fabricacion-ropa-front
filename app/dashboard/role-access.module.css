@@ -1,0 +1,70 @@
+.page {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100svh;
+  place-items: center;
+  padding: 24px;
+  background: #f6f8f5;
+  color: #23372e;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.card {
+  display: flex;
+  width: min(100%, 420px);
+  flex-direction: column;
+  align-items: center;
+  padding: 32px;
+  border: 1px solid #e8ece8;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+}
+
+.mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #bbdb79;
+  border-radius: 10px 3px;
+  color: #3d7657;
+  font-family: Georgia, serif;
+  font-size: 24px;
+  font-style: italic;
+}
+
+.card h1 {
+  margin: 18px 0 8px;
+  font-size: 20px;
+}
+
+.card p {
+  margin: 0;
+  color: #68766e;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.card .error {
+  margin-top: 12px;
+  color: #b42318;
+}
+
+.card button {
+  min-height: 38px;
+  margin-top: 22px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: #20382e;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.card button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}

@@ -64,6 +64,45 @@
   letter-spacing: 1px;
 }
 
+.companySwitcher {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 16px;
+  padding: 0 9px;
+}
+
+.companySwitcher label {
+  color: #a9b9ae;
+  font-size: 9px;
+}
+
+.companySwitcher select {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 7px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 4px;
+  background: #294538;
+  color: #f0f4f1;
+  font: inherit;
+  font-size: 10px;
+}
+
+.companySwitcher button {
+  min-height: 28px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 4px;
+  background: transparent;
+  color: #dce7df;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+}
+
+.companySwitcher button:hover {
+  background: rgb(255 255 255 / 7%);
+}
+
 .navigation {
   display: flex;
   flex-direction: column;

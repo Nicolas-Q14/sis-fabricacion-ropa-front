@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { User } from '@supabase/supabase-js';
+import { appRoleLabels, type AppRole, type CompanyOption } from '../../../../lib/auth/roles';
 import { createClient } from '../../../../lib/supabase/client';
 import styles from '../css/dashboard.module.css';
 
@@ -54,15 +54,6 @@ function formatDate() {
   }).format(new Date());
 }
 
-function getDisplayName(user: User | null) {
-  const fullName = user?.user_metadata?.full_name;
-  const name = user?.user_metadata?.name;
-
-  if (typeof fullName === 'string' && fullName.trim()) return fullName.trim();
-  if (typeof name === 'string' && name.trim()) return name.trim();
-  return user?.email ?? 'Tu cuenta';
-}
-
 function getInitials(displayName: string, email?: string) {
   const name = displayName === email ? displayName.split('@')[0] : displayName;
   return name
@@ -74,50 +65,38 @@ function getInitials(displayName: string, email?: string) {
     .toUpperCase() || '??';
 }
 
-export default function Dashboard() {
+export default function Dashboard({
+  companies,
+  companyId,
+  companyName,
+  email,
+  fullName,
+  role,
+}: {
+  companies: CompanyOption[];
+  companyId: string | null;
+  companyName: string | null;
+  email: string;
+  fullName: string;
+  role: AppRole;
+}) {
   const router = useRouter();
   const orders = initialOrders;
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
-  const [profileError, setProfileError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState('');
-  const displayName = getDisplayName(user);
-  const initials = getInitials(displayName, user?.email);
+  const displayName = fullName.trim() || email || 'Tu cuenta';
+  const initials = getInitials(displayName, email);
+  const visibleNavigation = navigation.filter(
+    (item) => role !== 'gerente_produccion' || item.label !== 'Reportes',
+  );
   const filteredOrders = useMemo(() => orders.filter((order) => {
     const matchesSearch = `${order.id} ${order.customer} ${order.item}`
       .toLowerCase()
       .includes(search.toLowerCase());
     return matchesSearch && (statusFilter === 'Todos' || order.status === statusFilter);
   }), [orders, search, statusFilter]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    createClient().auth.getUser()
-      .then(({ data, error }) => {
-        if (!isMounted) return;
-
-        if (error) {
-          setProfileError('No se pudo cargar el usuario autenticado.');
-          return;
-        }
-
-        setUser(data.user);
-      })
-      .catch(() => {
-        if (isMounted) setProfileError('No se pudo cargar el usuario autenticado.');
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingProfile(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   async function handleSignOut() {
     setIsSigningOut(true);
@@ -147,9 +126,20 @@ export default function Dashboard() {
           <span className={styles.brandName}>FRENESÍ <b>SPORT</b></span>
         </Link>
 
-        <div className={styles.businessLabel}>ESPACIO DE TRABAJO</div>
+        <div className={styles.businessLabel}>{appRoleLabels[role].toUpperCase()}</div>
+        {companies.length > 1 && (
+          <form action="/dashboard" className={styles.companySwitcher}>
+            <label htmlFor="active-company">Empresa activa</label>
+            <select defaultValue={companyId ?? ''} id="active-company" name="companyId">
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>{company.name}</option>
+              ))}
+            </select>
+            <button type="submit">Cambiar empresa</button>
+          </form>
+        )}
         <nav className={styles.navigation} aria-label="Navegación principal">
-          {navigation.map((item) => (
+          {visibleNavigation.map((item) => (
             <a
               aria-current={item.active ? 'page' : undefined}
               className={`${styles.navLink} ${item.active ? styles.navActive : ''}`}
@@ -171,7 +161,7 @@ export default function Dashboard() {
           </div>
           <button className={styles.profile} disabled={isSigningOut} onClick={handleSignOut} type="button">
             <span className={styles.profileAvatar}>{initials}</span>
-            <span className={styles.profileText}><strong>{displayName}</strong><span role="status">{profileError || signOutError || (isLoadingProfile ? 'Cargando perfil…' : isSigningOut ? 'Cerrando sesión…' : 'Cerrar sesión')}</span></span>
+            <span className={styles.profileText}><strong>{displayName}</strong><span role="status">{signOutError || (isSigningOut ? 'Cerrando sesión…' : 'Cerrar sesión')}</span></span>
             <span className={styles.profileMenu} aria-hidden="true">↗</span>
           </button>
         </div>
@@ -179,7 +169,7 @@ export default function Dashboard() {
 
       <section className={styles.workspace}>
         <header className={styles.topbar}>
-          <div className={styles.breadcrumb}><span>Frenesí Sport</span><span aria-hidden="true">/</span><strong>Resumen</strong></div>
+          <div className={styles.breadcrumb}><span>{companyName ?? 'Panel global'}</span><span aria-hidden="true">/</span><strong>Resumen</strong></div>
           <div className={styles.topbarActions}>
             <span className={styles.today}>{formatDate()}</span>
             <button className={styles.notification} aria-label="Notificaciones">
@@ -192,7 +182,7 @@ export default function Dashboard() {
         <div className={styles.content}>
           <div className={styles.welcomeRow}>
             <div>
-              <div className={styles.overline}>MARTES, 29 DE SEPTIEMBRE</div>
+              <div className={styles.overline}>{appRoleLabels[role].toUpperCase()}</div>
               <h1>Buenos días, {displayName} <span aria-hidden="true">✳</span></h1>
               <p>Esto es lo que está pasando en tu operación hoy.</p>
             </div>
@@ -289,7 +279,7 @@ export default function Dashboard() {
               <a className={styles.panelBottomLink} href="#inventario">Ver inventario <span aria-hidden="true">→</span></a>
             </section>
 
-            <section className={`${styles.panel} ${styles.activityPanel}`} id="actividad">
+            {role !== 'gerente_produccion' && <section className={`${styles.panel} ${styles.activityPanel}`} id="actividad">
               <div className={styles.panelHeading}>
                 <div><h2>Actividad reciente</h2><p>Últimos movimientos del equipo</p></div>
                 <a className={styles.moreButton} href="#actividad" aria-label="Ver actividad">···</a>
@@ -299,10 +289,10 @@ export default function Dashboard() {
                 <div className={styles.activityItem}><span className={`${styles.activityIcon} ${styles.activityBlue}`}>＋</span><span><strong>Nuevo pedido registrado</strong><small>María G. · hace 42 min</small></span></div>
                 <div className={styles.activityItem}><span className={`${styles.activityIcon} ${styles.activityOrange}`}>↗</span><span><strong>Salida de tela dry fit · 8 m</strong><small>Laura R. · hace 1 h</small></span></div>
               </div>
-            </section>
+            </section>}
           </div>
 
-          <footer className={styles.pageFooter}><span>Frenesí Sport · Gestión de producción</span><span>Datos de demostración</span></footer>
+          <footer className={styles.pageFooter}><span>{companyName ?? 'Hilo'} · Gestión de producción</span><span>Datos de demostración</span></footer>
         </div>
       </section>
     </main>

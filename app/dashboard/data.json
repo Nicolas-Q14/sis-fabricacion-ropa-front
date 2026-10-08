@@ -1,0 +1,30 @@
+[
+  {
+    "id": "FS-2084",
+    "customer": "Club Deportivo Norte",
+    "item": "Uniforme local · 24 und.",
+    "due": "Hoy, 4:30 p. m.",
+    "status": "En producción"
+  },
+  {
+    "id": "FS-2083",
+    "customer": "Academia Halcones",
+    "item": "Camiseta entrenamiento · 18 und.",
+    "due": "Hoy, 5:00 p. m.",
+    "status": "Pendiente"
+  },
+  {
+    "id": "FS-2082",
+    "customer": "Liga Barrial San José",
+    "item": "Uniforme visitante · 36 und.",
+    "due": "30 sep, 10:00 a. m.",
+    "status": "En producción"
+  },
+  {
+    "id": "FS-2081",
+    "customer": "Escuela Fútbol 10",
+    "item": "Uniforme infantil · 22 und.",
+    "due": "30 sep, 2:00 p. m.",
+    "status": "Listo"
+  }
+]

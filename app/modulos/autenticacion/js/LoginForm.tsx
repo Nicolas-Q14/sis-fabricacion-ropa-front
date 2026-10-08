@@ -1,10 +1,9 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { LoginForm as LoginFormView } from '../../../../components/login-form';
 import { createClient } from '../../../../lib/supabase/client';
-import styles from '../css/login.module.css';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -54,100 +53,21 @@ export default function LoginForm() {
   }
 
   return (
-    <main className={styles.page}>
-      <section className={styles.story} aria-label="Sistema de gestión textil">
-        <Link className={styles.brand} href="/" aria-label="Hilo, inicio">
-          <span className={styles.brandMark} aria-hidden="true">H</span>
-          <span>hilo<span className={styles.brandDot}>.</span></span>
-        </Link>
-
-        <div className={styles.storyCopy}>
-          <span className={styles.eyebrow}>GESTIÓN TEXTIL, EN ORDEN</span>
-          <h1>Las buenas ideas también se <em>organizan.</em></h1>
-          <p>Producción, inventario y pedidos. Todo el taller, en una sola vista.</p>
-        </div>
-
-        <div className={styles.fabricNote}>
-          <span className={styles.fabricLine} aria-hidden="true" />
-          <span>Hecho para quienes hacen</span>
-          <span className={styles.fabricIndex}>01 — 03</span>
-        </div>
-      </section>
-
-      <section className={styles.formSide}>
-        <div className={styles.mobileBrand} aria-hidden="true">
-          <span className={styles.brandMark}>H</span><span>hilo<span className={styles.brandDot}>.</span></span>
-        </div>
-        <div className={styles.formWrap}>
-          <div className={styles.formHeading}>
-            <span className={styles.eyebrow}>TU ESPACIO DE TRABAJO</span>
-            <h2>Qué bueno verte.</h2>
-            <p>Ingresa tus datos para continuar.</p>
-          </div>
-
-          <form className={styles.form} onSubmit={handleSubmit}>
-            <label className={styles.field} htmlFor="email">
-              <span>Correo electrónico</span>
-              <input
-                autoComplete="username"
-                id="email"
-                name="email"
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="nombre@empresa.com"
-                required
-                type="email"
-                value={email}
-              />
-            </label>
-
-            <label className={styles.field} htmlFor="password">
-              <span>Contraseña</span>
-              <span className={styles.passwordInput}>
-                <input
-                  autoComplete="current-password"
-                  id="password"
-                  name="password"
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Tu contraseña"
-                  required
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                />
-                <button
-                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                  className={styles.visibilityButton}
-                  onClick={() => setShowPassword(!showPassword)}
-                  type="button"
-                >
-                  {showPassword ? 'Ocultar' : 'Mostrar'}
-                </button>
-              </span>
-            </label>
-
-            <div className={styles.formOptions}>
-              <label className={styles.remember}>
-                <input
-                  checked={rememberMe}
-                  onChange={(event) => setRememberMe(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>Recordarme</span>
-              </label>
-              <a className={styles.helpLink} href="mailto:soporte@hilo.app?subject=Recuperar%20acceso">
-                ¿Olvidaste tu contraseña?
-              </a>
-            </div>
-
-            {status && <p className={styles.status} role="status">{status}</p>}
-
-            <button className={styles.submit} disabled={isSubmitting} type="submit">
-              {isSubmitting ? 'Ingresando…' : 'Iniciar sesión'}
-              <span aria-hidden="true">↗</span>
-            </button>
-          </form>
-
-          <p className={styles.footer}>Acceso exclusivo para el equipo de trabajo.</p>
-        </div>
+    <main className="flex min-h-svh items-center justify-center bg-muted p-6 md:p-10">
+      <section className="w-full max-w-4xl" aria-label="Iniciar sesión">
+        <LoginFormView
+          email={email}
+          isSubmitting={isSubmitting}
+          onEmailChange={setEmail}
+          onPasswordChange={setPassword}
+          onRememberMeChange={setRememberMe}
+          onSubmit={handleSubmit}
+          onTogglePassword={() => setShowPassword((visible) => !visible)}
+          password={password}
+          rememberMe={rememberMe}
+          showPassword={showPassword}
+          status={status}
+        />
       </section>
     </main>
   );
