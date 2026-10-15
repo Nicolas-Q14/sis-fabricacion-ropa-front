@@ -1,15 +1,22 @@
 # Roles y empresas
 
-Las migraciones `migrations/20261008211000_company_roles.sql` y
-`migrations/20261008225000_global_admin.sql` crean los roles `superadmin`,
-`admin` global y `gerente_produccion` por empresa, junto con las empresas y las
-asignaciones de usuarios.
+Las migraciones `migrations/20261008211000_company_roles.sql`,
+`migrations/20261008225000_global_admin.sql` y
+`migrations/20261015170000_independent_user_roles.sql` configuran los roles y
+las asignaciones de usuarios. La migración
+`migrations/20261015180000_user_profiles.sql` agrega la sede editable por
+empleado. Para el sistema de una sola empresa, los usuarios nuevos no requieren
+una fila en `companies`. La migración `migrations/20261015190000_profile_photos.sql`
+configura el almacenamiento de fotos de perfil.
 
 ## Aplicación
 
 Aplica la migración al proyecto Supabase de desarrollo y luego al de producción
 desde el SQL Editor de Supabase o mediante Supabase CLI después de enlazar el
 proyecto. No compartas la `service_role key` ni la incluyas en el frontend.
+Para habilitar la gestión de usuarios, configura `SUPABASE_SERVICE_ROLE_KEY`
+solo en el entorno del servidor (por ejemplo, en `.env.local` para desarrollo).
+Nunca uses el prefijo `NEXT_PUBLIC_` para esta clave.
 
 ## Primer superadmin
 
@@ -25,33 +32,16 @@ on conflict do nothing;
 ```
 
 Si no se inserta ninguna fila, verifica que el usuario ya exista y que el correo
-coincida. Este primer superadmin es necesario para crear empresas y asignar los
-roles de sus usuarios.
+coincida. Este primer superadmin es necesario para gestionar los perfiles de los
+usuarios.
 
-## Crear una empresa y asignar un rol
+## Compatibilidad con asignaciones antiguas por empresa
 
-Primero crea la empresa como superadmin y copia el UUID devuelto:
-
-```sql
-insert into public.companies (name)
-values ('Nombre de la empresa')
-returning id;
-```
-
-Para asignar `gerente_produccion`, usa el UUID de un usuario existente y el UUID
-de la empresa:
-
-```sql
-insert into public.user_roles (user_id, role, company_id, assigned_by)
-values (
-  'UUID-DEL-USUARIO'::uuid,
-  'gerente_produccion',
-  'UUID-DE-LA-EMPRESA'::uuid,
-  'UUID-DEL-SUPERADMIN'::uuid
-);
-```
-
-Reemplaza los tres UUID de ejemplo. Superadmin y admin global se asignan sin
+La aplicación ya no requiere crear una empresa para registrar empleados. Las
+tablas y permisos por `company_id` se conservan para no perder compatibilidad
+con asignaciones o datos antiguos. Si necesitas crear una asignación antigua
+por empresa, el usuario debe tener la fila correspondiente en `companies`.
+Superadmin y los perfiles nuevos de administrador/producción se asignan sin
 `company_id`:
 
 ```sql
@@ -65,33 +55,66 @@ on conflict do nothing
 returning user_id, role, company_id;
 ```
 
-Un usuario solo puede tener un rol global de cada tipo y un rol por empresa.
-Solo el superadmin puede asignar o cambiar roles.
+Los usuarios creados desde `/dashboard/usuarios` quedan asociados directamente
+a la única sede lógica del sistema, no a una empresa de `companies`. La base de
+datos conserva las restricciones de rol global para impedir asignaciones
+duplicadas. Solo el superadmin puede asignar o cambiar roles.
 
 ## Permisos incluidos
 
-- **Superadmin:** acceso global a empresas y asignaciones; puede crear/eliminar
-  empresas y asignar o cambiar roles.
-- **Admin global:** puede consultar, crear, actualizar y eliminar empresas; no
-  puede asignar roles.
-- **Gerente de producción:** puede consultar su empresa. Las políticas para
-  pedidos, producción e inventario deben añadirse a las tablas de esos módulos
-  cuando existan, restringiendo cada fila por `company_id` y usando
-  `has_company_role(company_id, ARRAY['gerente_produccion']::public.app_role[])`.
+- **Superadmin:** puede consultar y asignar perfiles a los empleados.
+- **Administrador:** perfil global de administración de la única empresa.
+- **Producción:** perfil global de producción de la única sede.
 
 Los usuarios no pueden asignarse ni elevarse roles desde el cliente. Las tablas
 `companies` y `user_roles` tienen Row Level Security habilitado. La migración
 no modifica usuarios existentes ni asigna roles automáticamente.
 
+## Gestión de usuarios y contraseña inicial
+
+El módulo `/dashboard/usuarios` solo se muestra y permite crear cuentas a
+usuarios con el rol `superadmin`. El superadmin registra empleados
+independientes de `companies` y les asigna el perfil administrador o producción.
+Puede editar la sede de cada empleado y activar o desactivar su cuenta. Una
+cuenta desactivada queda bloqueada para el inicio de sesión y el acceso a la
+aplicación. La contraseña temporal se genera de forma aleatoria por cuenta y se
+muestra una sola vez al superadmin; debe compartirla de forma segura con el usuario.
+
+Las cuentas nuevas llevan `must_change_password` en `app_metadata`. El servidor
+bloquea el acceso al dashboard hasta que el usuario establezca una contraseña
+de al menos 12 caracteres. La gestión de cuentas usa la API administrativa de
+Supabase exclusivamente en rutas de servidor y requiere
+`SUPABASE_SERVICE_ROLE_KEY`. Aplica también la migración
+`20261015170000_independent_user_roles.sql` antes de crear usuarios sin empresa;
+aplica `20261015180000_user_profiles.sql` para habilitar la gestión de sedes.
+Aplica también `20261015190000_profile_photos.sql` para habilitar la subida de
+fotos de perfil. Las asignaciones antiguas por `company_id` se conservan.
+
+## Perfil y cambio de correo
+
+Cada usuario puede editar su nombre y foto desde **Mi perfil**, en el menú de su
+cuenta. Las fotos se guardan en el bucket público `profile-photos`; las políticas
+de Storage solo permiten que cada usuario suba o reemplace archivos dentro de su
+propia carpeta.
+
+El cambio de correo usa el flujo de confirmación de Supabase Auth. Para que el
+correo actual reciba una notificación cuando cambie la dirección, habilita
+**Email address changed notification** en la configuración de notificaciones de
+seguridad de Auth y configura el proveedor SMTP/correo del proyecto. La
+notificación al correo anterior se envía al confirmarse el cambio; la verificación
+se envía al nuevo correo. No se cambia la dirección hasta completar la
+verificación que requiera la configuración de Auth.
+
 ## Aplicación web
 
-La ruta `/dashboard` consulta el usuario, sus roles y las empresas permitidas en
-el servidor. Si no encuentra un rol o la consulta RLS falla, niega el acceso y
-muestra cómo proceder. Cuando un usuario tiene varias empresas, puede elegir el
-contexto activo desde el menú lateral; superadmin y admin global pueden elegir
-cualquier empresa o entrar a su panel global si todavía no hay empresas.
+La ruta `/dashboard` consulta el usuario, sus roles y, para las asignaciones
+antiguas, las empresas permitidas en el servidor. Si no encuentra un rol o la
+consulta RLS falla, niega el acceso y muestra cómo proceder. Los perfiles
+independientes de la empresa conservan su rol aunque existan empresas heredadas
+en la base de datos.
 
 Los pedidos, inventario, producción e indicadores que aparecen actualmente en
 el dashboard siguen siendo datos de demostración. No están conectados a tablas
-reales ni aislados por empresa; sus políticas RLS deberán definirse al crear
-esas tablas, siempre incluyendo `company_id`.
+reales. Cuando se creen, sus políticas RLS deberán autorizar por perfil de
+usuario; no necesitan aislarse por `company_id` mientras el sistema corresponda
+a una única empresa y sede.

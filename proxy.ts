@@ -46,18 +46,60 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   const isDashboard = request.nextUrl.pathname.startsWith('/dashboard')
   const isLogin = request.nextUrl.pathname === '/login'
+  const isAccountDisabled = request.nextUrl.pathname === '/account-disabled'
+  const isApi = request.nextUrl.pathname.startsWith('/api/')
+  const isPasswordChange = request.nextUrl.pathname === '/dashboard/change-password'
 
   if (isDashboard && !user) {
     return redirectWithCookies('/login')
   }
 
-  if (isLogin && user) {
+  if (!user && isAccountDisabled) {
+    return redirectWithCookies('/login')
+  }
+
+  if (user?.app_metadata?.is_active === false) {
+    if (isApi) {
+      const blockedResponse = NextResponse.json(
+        { error: 'Tu cuenta está desactivada. Contacta al superadmin.' },
+        { status: 403 },
+      )
+      response.cookies.getAll().forEach((cookie) => blockedResponse.cookies.set(cookie))
+      return blockedResponse
+    }
+
+    if (!isAccountDisabled) {
+      return redirectWithCookies('/account-disabled')
+    }
+  }
+
+  if (isAccountDisabled && user) {
     return redirectWithCookies('/dashboard')
+  }
+
+  if (
+    isDashboard
+    && user?.app_metadata?.must_change_password === true
+    && !isPasswordChange
+  ) {
+    return redirectWithCookies('/dashboard/change-password')
+  }
+
+  if (isPasswordChange && user?.app_metadata?.must_change_password !== true) {
+    return redirectWithCookies('/dashboard')
+  }
+
+  if (isLogin && user) {
+    return redirectWithCookies(
+      user.app_metadata?.must_change_password === true
+        ? '/dashboard/change-password'
+        : '/dashboard',
+    )
   }
 
   return response
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login'],
+  matcher: ['/dashboard/:path*', '/api/:path*', '/account-disabled', '/login'],
 }

@@ -37,10 +37,16 @@ export default function LoginForm() {
       }
 
       const supabase = createClient(rememberMe);
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
       if (error) {
         setStatus('No pudimos validar tus datos. Revisa tu correo y contraseña.');
+        return;
+      }
+
+      if (data.user?.app_metadata?.is_active === false) {
+        await supabase.auth.signOut();
+        setStatus('Tu cuenta está desactivada. Contacta al superadmin.');
         return;
       }
 

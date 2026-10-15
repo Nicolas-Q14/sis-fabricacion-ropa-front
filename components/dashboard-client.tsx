@@ -68,6 +68,7 @@ export function DashboardClient({
   companyName,
   email,
   fullName,
+  avatarUrl,
   role,
 }: {
   companies: CompanyOption[]
@@ -75,6 +76,7 @@ export function DashboardClient({
   companyName: string | null
   email: string
   fullName: string
+  avatarUrl: string | null
   role: AppRole
 }) {
   const displayName = fullName.trim() || email || "Tu cuenta"
@@ -105,7 +107,7 @@ export function DashboardClient({
         companyName={companyName}
         companies={companies}
         role={role}
-        user={{ name: displayName, email }}
+        user={{ name: displayName, email, avatarUrl }}
       />
       <SidebarInset>
         <SiteHeader companyName={companyName} role={role} />

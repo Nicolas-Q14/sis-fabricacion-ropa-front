@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation"
 import {
   Avatar,
   AvatarFallback,
+  AvatarImage,
 } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -22,14 +24,14 @@ import {
 } from "@/components/ui/sidebar"
 import { createClient } from "@/lib/supabase/client"
 import { appRoleLabels, type AppRole } from "@/lib/auth/roles"
-import { LogOutIcon, UserRoundIcon } from "lucide-react"
+import { LogOutIcon, Settings2Icon, UserRoundIcon } from "lucide-react"
 import { toast } from "sonner"
 
 export function NavUser({
   user,
   role,
 }: {
-  user: { name: string; email: string }
+  user: { name: string; email: string; avatarUrl?: string | null }
   role: AppRole
 }) {
   const { isMobile } = useSidebar()
@@ -45,14 +47,20 @@ export function NavUser({
 
   async function handleSignOut() {
     setIsSigningOut(true)
-    const { error } = await createClient().auth.signOut()
-    if (error) {
+    try {
+      const { error } = await createClient().auth.signOut()
+      if (error) {
+        toast.error("No se pudo cerrar la sesión. Inténtalo de nuevo.")
+        setIsSigningOut(false)
+        return
+      }
+
+      router.replace("/login")
+      router.refresh()
+    } catch {
       toast.error("No se pudo cerrar la sesión. Inténtalo de nuevo.")
       setIsSigningOut(false)
-      return
     }
-    router.replace("/login")
-    router.refresh()
   }
 
   return (
@@ -65,6 +73,7 @@ export function NavUser({
             }
           >
             <Avatar className="size-8 rounded-lg">
+              {user.avatarUrl && <AvatarImage alt="" src={user.avatarUrl} />}
               <AvatarFallback className="rounded-lg">{initials}</AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
@@ -80,18 +89,24 @@ export function NavUser({
             align="end"
             sideOffset={4}
           >
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex items-center gap-2">
-                <UserRoundIcon className="size-4 text-muted-foreground" />
-                <div className="grid text-sm">
-                  <span className="truncate font-medium">{user.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {appRoleLabels[role]}
-                  </span>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex items-center gap-2">
+                  <UserRoundIcon className="size-4 text-muted-foreground" />
+                  <div className="grid text-sm">
+                    <span className="truncate font-medium">{user.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {appRoleLabels[role]}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </DropdownMenuLabel>
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/dashboard/perfil")}>
+              <Settings2Icon />
+              Mi perfil
+            </DropdownMenuItem>
             <DropdownMenuItem
               disabled={isSigningOut}
               onClick={handleSignOut}
@@ -101,6 +116,16 @@ export function NavUser({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          disabled={isSigningOut}
+          onClick={handleSignOut}
+          tooltip="Cerrar sesión"
+        >
+          <LogOutIcon />
+          <span>{isSigningOut ? "Cerrando sesión..." : "Cerrar sesión"}</span>
+        </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>
   )

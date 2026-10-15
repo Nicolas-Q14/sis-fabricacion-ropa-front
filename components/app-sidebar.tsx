@@ -17,14 +17,14 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { appRoleLabels, type AppRole, type CompanyOption } from "@/lib/auth/roles"
-import { FactoryIcon, ShirtIcon } from "lucide-react"
+import { FactoryIcon, ShirtIcon, UsersRoundIcon } from "lucide-react"
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   companyId: string | null
   companyName: string | null
   companies: CompanyOption[]
   role: AppRole
-  user: { name: string; email: string }
+  user: { name: string; email: string; avatarUrl?: string | null }
 }
 
 export function AppSidebar({
@@ -44,6 +44,9 @@ export function AppSidebar({
     ...(role === "gerente_produccion"
       ? []
       : [{ title: "Actividad reciente", url: "#actividad", icon: <FactoryIcon /> }]),
+    ...(role === "superadmin"
+      ? [{ title: "Gestión de usuarios", url: "/dashboard/usuarios", icon: <UsersRoundIcon /> }]
+      : []),
   ]
 
   return (

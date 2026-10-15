@@ -16,6 +16,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     redirect('/login');
   }
 
+  if (user.app_metadata?.is_active === false) {
+    redirect('/account-disabled');
+  }
+
+  if (user.app_metadata?.must_change_password === true) {
+    redirect('/dashboard/change-password');
+  }
+
   const { data: roleRows, error: rolesError } = await supabase
     .from('user_roles')
     .select('role, company_id')
@@ -72,7 +80,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     ? 'superadmin'
     : isGlobalAdmin
       ? 'admin'
-      : roles.find((row) => row.company_id === activeCompany?.id)?.role;
+      : roles.find((row) => row.company_id === activeCompany?.id)?.role
+        ?? roles.find((row) => row.company_id === null)?.role;
 
   if (!activeRole || !isAppRole(activeRole)) {
     return (
@@ -93,6 +102,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       companyName={activeCompany?.name ?? null}
       email={user.email ?? ''}
       fullName={fullName}
+      avatarUrl={typeof user.user_metadata?.avatar_url === 'string'
+        ? user.user_metadata.avatar_url
+        : null}
       role={activeRole}
     />
   );
