@@ -128,3 +128,34 @@
     @apply font-sans;
   }
 }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-area,
+  .print-area * {
+    visibility: visible !important;
+  }
+
+  .print-area {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  .print-hidden,
+  .print-hidden * {
+    display: none !important;
+  }
+
+  .print-area [data-slot="card"] {
+    break-inside: avoid;
+    border: 1px solid #d4d4d8 !important;
+    box-shadow: none !important;
+  }
+}

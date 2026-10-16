@@ -37,9 +37,9 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const router = useRouter()
   const items = [
-    { title: "Resumen", url: "#inicio", icon: <FactoryIcon /> },
-    { title: "Pedidos", url: "#pedidos", icon: <ShirtIcon /> },
-    { title: "Producción", url: "#produccion", icon: <FactoryIcon /> },
+    { title: "Resumen", url: "/dashboard", icon: <FactoryIcon /> },
+    { title: "Pedidos", url: "/dashboard/orders", icon: <ShirtIcon /> },
+    { title: "Producción", url: "/dashboard/production", icon: <FactoryIcon /> },
     { title: "Inventario", url: "#inventario", icon: <ShirtIcon /> },
     ...(role === "gerente_produccion"
       ? []
@@ -56,7 +56,7 @@ export function AppSidebar({
           <SidebarMenuItem>
             <SidebarMenuButton
               className="data-[slot=sidebar-menu-button]:p-1.5!"
-              render={<a href="#inicio" />}
+              render={<a href="/dashboard" />}
             >
               <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
                 <ShirtIcon className="size-5" />
