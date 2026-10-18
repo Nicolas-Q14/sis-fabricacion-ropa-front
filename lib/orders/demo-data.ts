@@ -33,6 +33,7 @@ export type PaymentStatus = "Pendiente" | "Abonado" | "Pagado"
 export type OrderGarment = {
   garment: string
   fit: string
+  color?: string
   size: string
   name: string
   number: string
@@ -244,9 +245,9 @@ export const demoOrders: DemoOrder[] = [
     salesperson: "María Gómez",
     note: "Confirmar colores de la segunda equipación antes de confección.",
     items: [
-      { garment: "Camiseta", fit: "Hombre", size: "M", name: "PÉREZ", number: "10", notes: "Parche liga en manga derecha" },
-      { garment: "Camiseta", fit: "Mujer", size: "S", name: "LÓPEZ", number: "7", notes: "Corte entallado" },
-      { garment: "Pantaloneta", fit: "Hombre", size: "L", name: "", number: "10", notes: "" },
+      { garment: "Camiseta", fit: "Hombre", color: "Azul marino", size: "M", name: "PÉREZ", number: "10", notes: "Parche liga en manga derecha" },
+      { garment: "Camiseta", fit: "Mujer", color: "Blanco", size: "S", name: "LÓPEZ", number: "7", notes: "Corte entallado" },
+      { garment: "Pantaloneta", fit: "Hombre", color: "Azul marino", size: "L", name: "", number: "10", notes: "" },
     ],
     timeline: [
       { date: "16 oct · 9:42 a. m.", title: "Pedido registrado", operator: "María Gómez" },
@@ -269,8 +270,8 @@ export const demoOrders: DemoOrder[] = [
     salesperson: "Andrés Peña",
     note: "Entregar por cursos en bolsas separadas.",
     items: [
-      { garment: "Sudadera", fit: "Infantil", size: "12", name: "", number: "", notes: "Curso 6A" },
-      { garment: "Sudadera", fit: "Infantil", size: "14", name: "", number: "", notes: "Curso 6B" },
+      { garment: "Sudadera", fit: "Infantil", color: "Azul marino", size: "12", name: "", number: "", notes: "Curso 6A" },
+      { garment: "Sudadera", fit: "Infantil", color: "Azul marino", size: "14", name: "", number: "", notes: "Curso 6B" },
     ],
     timeline: [
       { date: "15 oct · 2:10 p. m.", title: "Pedido registrado", operator: "Andrés Peña" },
@@ -292,8 +293,8 @@ export const demoOrders: DemoOrder[] = [
     salesperson: "María Gómez",
     note: "Prioridad alta: torneo el sábado.",
     items: [
-      { garment: "Camiseta", fit: "Hombre", size: "L", name: "RAMÍREZ", number: "9", notes: "" },
-      { garment: "Pantaloneta", fit: "Hombre", size: "L", name: "", number: "9", notes: "" },
+      { garment: "Camiseta", fit: "Hombre", color: "Negro", size: "L", name: "RAMÍREZ", number: "9", notes: "" },
+      { garment: "Pantaloneta", fit: "Hombre", color: "Negro", size: "L", name: "", number: "9", notes: "" },
     ],
     timeline: [
       { date: "14 oct · 10:04 a. m.", title: "Pedido registrado", operator: "María Gómez" },
@@ -315,7 +316,7 @@ export const demoOrders: DemoOrder[] = [
     salesperson: "Andrés Peña",
     note: "Pendiente aprobación del arte final.",
     items: [
-      { garment: "Camiseta", fit: "Hombre", size: "M", name: "", number: "", notes: "Logo frontal centrado" },
+      { garment: "Camiseta", fit: "Hombre", color: "Blanco", size: "M", name: "", number: "", notes: "Logo frontal centrado" },
     ],
     timeline: [
       { date: "17 oct · 4:28 p. m.", title: "Pedido registrado", operator: "Andrés Peña" },

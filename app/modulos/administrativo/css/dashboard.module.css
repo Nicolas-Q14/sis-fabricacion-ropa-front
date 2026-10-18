@@ -754,8 +754,7 @@
 .purple { background-color: #9b8cbb; }
 .red { background-color: #d57662; }
 
-.progressTrack,
-.supplyTrack {
+.progressTrack {
   display: block;
   height: 5px;
   overflow: hidden;
@@ -763,8 +762,7 @@
   background: #eff2ef;
 }
 
-.progressTrack span,
-.supplyTrack i {
+.progressTrack span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -777,99 +775,8 @@
   border-top: 1px solid #eff1ef;
 }
 
-.inventoryPanel,
-.activityPanel {
+.inventoryPanel {
   min-height: 235px;
-}
-
-.alertCount {
-  padding: 5px 7px;
-  border-radius: 9px;
-  background: #fbefdf;
-  color: #ac7531;
-  font-size: 8px;
-  white-space: nowrap;
-}
-
-.supplyList {
-  display: grid;
-  gap: 15px;
-  padding: 2px 0 15px;
-}
-
-.supplyTop,
-.supplyBottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.supplyTop {
-  margin-bottom: 6px;
-  color: #53645a;
-  font-size: 9px;
-}
-
-.supplyTop strong {
-  color: #46584d;
-  font-size: 9px;
-  font-weight: 650;
-}
-
-.supplyBottom {
-  color: #9ba49e;
-  font-size: 8px;
-}
-
-.supplyTrack {
-  width: 74px;
-  height: 4px;
-  flex: 0 0 auto;
-}
-
-.activityList {
-  display: grid;
-  gap: 14px;
-  padding: 2px 0 13px;
-}
-
-.activityItem {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-}
-
-.activityIcon {
-  display: grid;
-  width: 23px;
-  height: 23px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 50%;
-  font-size: 10px;
-}
-
-.activityGreen { background: #e7f1e8; color: #54805a; }
-.activityBlue { background: #e9f0f5; color: #6186a1; }
-.activityOrange { background: #f8ede1; color: #b57b3d; }
-
-.activityItem > span:last-child {
-  display: grid;
-  gap: 4px;
-  padding-top: 2px;
-}
-
-.activityItem strong {
-  color: #53645a;
-  font-size: 9px;
-  font-weight: 550;
-  line-height: 1.35;
-}
-
-.activityItem small {
-  color: #9ba49e;
-  font-size: 8px;
 }
 
 .pageFooter {
@@ -934,8 +841,7 @@
   .metricCard { min-height: 108px; }
   .mainGrid { grid-template-columns: 1fr; gap: 10px; }
   .ordersPanel { grid-column: auto; }
-  .inventoryPanel,
-  .activityPanel { min-height: auto; }
+  .inventoryPanel { min-height: auto; }
 }
 
 @media (max-width: 430px) {

@@ -196,7 +196,7 @@ export function GarmentTraceSheet({
                         />
                       </TableCell>
                       <TableCell className="min-w-40">
-                        <p className="font-medium">{item.garment} · Talla {item.size || "—"}</p>
+                        <p className="font-medium">{item.garment} · {item.color || "Azul marino"} · Talla {item.size || "—"}</p>
                         <p className="text-xs text-muted-foreground">{item.fit}</p>
                         {item.name && <p className="text-xs">{item.name}</p>}
                       </TableCell>

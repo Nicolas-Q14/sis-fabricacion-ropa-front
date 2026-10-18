@@ -278,8 +278,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
             </CardHeader>
             <CardContent className="space-y-2">
               {order.items.map((item, index) => (
-                <div className="grid grid-cols-6 gap-3 border-b py-2 text-xs last:border-0" key={`${item.garment}-${index}`}>
+                <div className="grid grid-cols-7 gap-3 border-b py-2 text-xs last:border-0" key={`${item.garment}-${index}`}>
                   <span>{item.garment}</span>
+                  <span>{item.color || "Azul marino"}</span>
                   <span>Talla {item.size}</span>
                   <span>{item.fit}</span>
                   <span>{item.name || "—"}</span>

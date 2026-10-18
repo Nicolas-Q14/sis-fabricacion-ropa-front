@@ -1,4 +1,9 @@
 import { demoOrders, getOrderStatus, type DemoOrder } from "@/lib/orders/demo-data"
+import {
+  readInventoryState,
+  reconcileInventoryOrders,
+  saveInventoryState,
+} from "@/lib/inventory/demo-inventory"
 
 const storageKey = "frenesi-demo-orders"
 let cachedStorageValue: string | null | undefined
@@ -22,13 +27,25 @@ export function readStoredOrders(): DemoOrder[] {
     status: getOrderStatus(order),
     items: order.items.map((item) => ({
       ...item,
+      color: item.color || "Azul marino",
       production: item.production ?? { currentPhase: 0, verifications: [] },
     })),
   }))
 }
 
 export function saveStoredOrders(orders: DemoOrder[]) {
+  const previousValue = window.localStorage.getItem(storageKey)
   window.localStorage.setItem(storageKey, JSON.stringify(orders))
+  try {
+    const ordersById = new Map(demoOrders.map((order) => [order.id, order]))
+    for (const order of orders) ordersById.set(order.id, order)
+    const inventory = reconcileInventoryOrders(readInventoryState(), [...ordersById.values()])
+    saveInventoryState(inventory)
+  } catch (error) {
+    if (previousValue === null) window.localStorage.removeItem(storageKey)
+    else window.localStorage.setItem(storageKey, previousValue)
+    throw error
+  }
   window.dispatchEvent(new Event("frenesi-demo-orders-change"))
 }
 

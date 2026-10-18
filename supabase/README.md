@@ -113,8 +113,12 @@ consulta RLS falla, niega el acceso y muestra cómo proceder. Los perfiles
 independientes de la empresa conservan su rol aunque existan empresas heredadas
 en la base de datos.
 
-Los pedidos, inventario, producción e indicadores que aparecen actualmente en
-el dashboard siguen siendo datos de demostración. No están conectados a tablas
-reales. Cuando se creen, sus políticas RLS deberán autorizar por perfil de
-usuario; no necesitan aislarse por `company_id` mientras el sistema corresponda
-a una única empresa y sede.
+Los pedidos e indicadores del dashboard siguen siendo datos de demostración. El
+módulo de inventario tiene catálogo por variante, existencias, movimientos y
+reservas enlazadas con pedidos, pero actualmente persiste en `localStorage` del
+navegador: no sincroniza datos entre usuarios ni dispositivos y no sustituye una
+base de datos. La reserva se recalcula al guardar cambios de pedidos y la
+entrega genera el descuento de existencias. Para producción, pedidos e
+inventario deberán migrarse a tablas reales con transacciones y políticas RLS
+que autoricen por perfil de usuario; no necesitan aislarse por `company_id`
+mientras el sistema corresponda a una única empresa y sede.

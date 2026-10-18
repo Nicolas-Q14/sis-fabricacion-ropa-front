@@ -40,10 +40,7 @@ export function AppSidebar({
     { title: "Resumen", url: "/dashboard", icon: <FactoryIcon /> },
     { title: "Pedidos", url: "/dashboard/orders", icon: <ShirtIcon /> },
     { title: "Producción", url: "/dashboard/production", icon: <FactoryIcon /> },
-    { title: "Inventario", url: "#inventario", icon: <ShirtIcon /> },
-    ...(role === "gerente_produccion"
-      ? []
-      : [{ title: "Actividad reciente", url: "#actividad", icon: <FactoryIcon /> }]),
+    { title: "Inventario", url: "/dashboard/inventory", icon: <ShirtIcon /> },
     ...(role === "superadmin"
       ? [{ title: "Gestión de usuarios", url: "/dashboard/usuarios", icon: <UsersRoundIcon /> }]
       : []),

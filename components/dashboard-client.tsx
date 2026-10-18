@@ -50,18 +50,6 @@ const productionStages = [
   { name: "Terminados", count: "6 órdenes", progress: 42 },
 ]
 
-const lowSupplies = [
-  { name: "Tela deportiva dry fit", available: "12 metros disponibles", quantity: "12 m", progress: 18 },
-  { name: "Hilo poliéster blanco", available: "8 conos disponibles", quantity: "8 u", progress: 28 },
-  { name: "Papel para sublimación", available: "2 rollos disponibles", quantity: "2 r", progress: 12 },
-]
-
-const recentActivity = [
-  { title: "Pedido FS-2084 pasó a confección", detail: "Andrés P. · hace 18 min" },
-  { title: "Nuevo pedido registrado", detail: "María G. · hace 42 min" },
-  { title: "Salida de tela dry fit · 8 m", detail: "Laura R. · hace 1 h" },
-]
-
 export function DashboardClient({
   companies,
   companyId,
@@ -265,59 +253,19 @@ export function DashboardClient({
             <section className="scroll-mt-6" id="inventario">
               <Card className="h-full">
                 <CardHeader>
-                  <CardTitle>Insumos por agotarse</CardTitle>
-                  <CardDescription>Materiales que requieren atención · 3 alertas</CardDescription>
+                  <CardTitle>Control de inventario</CardTitle>
+                  <CardDescription>Productos, variantes, existencias y movimientos</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-5">
-                  {lowSupplies.map((supply) => (
-                    <div key={supply.name} className="space-y-2">
-                      <div className="flex justify-between gap-3 text-sm">
-                        <span className="font-medium">{supply.name}</span>
-                        <span className="shrink-0">{supply.quantity}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="flex-1 text-xs text-muted-foreground">{supply.available}</span>
-                        <div
-                          aria-label={`Nivel disponible: ${supply.progress}%`}
-                          className="h-2 w-20 overflow-hidden rounded-full bg-muted"
-                          role="meter"
-                          aria-valuenow={supply.progress}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                        >
-                          <div
-                            className="h-full rounded-full bg-amber-500"
-                            style={{ width: `${supply.progress}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Consulta el stock disponible, administra variantes y registra entradas, salidas, transferencias o ajustes.
+                  </p>
+                  <a className="text-sm font-medium text-primary hover:underline" href="/dashboard/inventory">
+                    Abrir módulo de inventario →
+                  </a>
                 </CardContent>
               </Card>
             </section>
-
-            {role !== "gerente_produccion" && (
-              <section className="scroll-mt-6" id="actividad">
-                <Card className="h-full">
-                  <CardHeader>
-                    <CardTitle>Actividad reciente</CardTitle>
-                    <CardDescription>Últimos movimientos del equipo</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    {recentActivity.map((activity) => (
-                      <div key={activity.title} className="flex gap-3">
-                        <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{activity.title}</p>
-                          <p className="text-xs text-muted-foreground">{activity.detail}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </section>
-            )}
           </div>
         </main>
       </SidebarInset>

@@ -31,19 +31,12 @@ const stages = [
   { name: 'Terminados', count: '6 órdenes', progress: 42, color: 'purple' },
 ];
 
-const supplies = [
-  { name: 'Tela deportiva dry fit', detail: '12 metros disponibles', amount: '12 m', percent: 18, color: 'red' },
-  { name: 'Hilo poliéster blanco', detail: '8 conos disponibles', amount: '8 u', percent: 28, color: 'orange' },
-  { name: 'Papel para sublimación', detail: '2 rollos disponibles', amount: '2 r', percent: 12, color: 'red' },
-];
-
 const navigation = [
   { label: 'Resumen', icon: '⌂', href: '#inicio', active: true },
   { label: 'Pedidos', icon: '▤', href: '#pedidos', badge: '8' },
   { label: 'Producción', icon: '◷', href: '#produccion' },
-  { label: 'Inventario', icon: '▦', href: '#inventario', badge: '3', alert: true },
-  { label: 'Reportes', icon: '▥', href: '#actividad' },
-];
+  { label: 'Inventario', icon: '▦', href: '/dashboard/inventory' },
+]
 
 function formatDate() {
   return new Intl.DateTimeFormat('es-CO', {
@@ -88,9 +81,6 @@ export default function Dashboard({
   const [signOutError, setSignOutError] = useState('');
   const displayName = fullName.trim() || email || 'Tu cuenta';
   const initials = getInitials(displayName, email);
-  const visibleNavigation = navigation.filter(
-    (item) => role !== 'gerente_produccion' || item.label !== 'Reportes',
-  );
   const filteredOrders = useMemo(() => orders.filter((order) => {
     const matchesSearch = `${order.id} ${order.customer} ${order.item}`
       .toLowerCase()
@@ -139,7 +129,7 @@ export default function Dashboard({
           </form>
         )}
         <nav className={styles.navigation} aria-label="Navegación principal">
-          {visibleNavigation.map((item) => (
+          {navigation.map((item) => (
             <a
               aria-current={item.active ? 'page' : undefined}
               className={`${styles.navLink} ${item.active ? styles.navActive : ''}`}
@@ -148,7 +138,7 @@ export default function Dashboard({
             >
               <span aria-hidden="true" className={styles.navIcon}>{item.icon}</span>
               <span>{item.label}</span>
-              {item.badge && <span className={`${styles.navBadge} ${item.alert ? styles.navAlert : ''}`}>{item.badge}</span>}
+              {item.badge && <span className={styles.navBadge}>{item.badge}</span>}
             </a>
           ))}
         </nav>
@@ -265,31 +255,12 @@ export default function Dashboard({
 
             <section className={`${styles.panel} ${styles.inventoryPanel}`} id="inventario">
               <div className={styles.panelHeading}>
-                <div><h2>Insumos por agotarse</h2><p>Materiales que requieren atención</p></div>
-                <span className={styles.alertCount}>3 alertas</span>
+                <div><h2>Control de inventario</h2><p>Productos, variantes y movimientos</p></div>
               </div>
-              <div className={styles.supplyList}>
-                {supplies.map((supply) => (
-                  <div className={styles.supply} key={supply.name}>
-                    <div className={styles.supplyTop}><span className={styles.supplyName}>{supply.name}</span><strong>{supply.amount}</strong></div>
-                    <div className={styles.supplyBottom}><span>{supply.detail}</span><span className={styles.supplyTrack}><i className={styles[supply.color]} style={{ width: `${supply.percent}%` }} /></span></div>
-                  </div>
-                ))}
-              </div>
-              <a className={styles.panelBottomLink} href="#inventario">Ver inventario <span aria-hidden="true">→</span></a>
+              <p>Administra el catálogo, las existencias por color y talla, las reservas de pedidos y sus movimientos.</p>
+              <a className={styles.panelBottomLink} href="/dashboard/inventory">Abrir módulo de inventario <span aria-hidden="true">→</span></a>
             </section>
 
-            {role !== 'gerente_produccion' && <section className={`${styles.panel} ${styles.activityPanel}`} id="actividad">
-              <div className={styles.panelHeading}>
-                <div><h2>Actividad reciente</h2><p>Últimos movimientos del equipo</p></div>
-                <a className={styles.moreButton} href="#actividad" aria-label="Ver actividad">···</a>
-              </div>
-              <div className={styles.activityList}>
-                <div className={styles.activityItem}><span className={`${styles.activityIcon} ${styles.activityGreen}`}>✓</span><span><strong>Pedido FS-2084 pasó a confección</strong><small>Andrés P. · hace 18 min</small></span></div>
-                <div className={styles.activityItem}><span className={`${styles.activityIcon} ${styles.activityBlue}`}>＋</span><span><strong>Nuevo pedido registrado</strong><small>María G. · hace 42 min</small></span></div>
-                <div className={styles.activityItem}><span className={`${styles.activityIcon} ${styles.activityOrange}`}>↗</span><span><strong>Salida de tela dry fit · 8 m</strong><small>Laura R. · hace 1 h</small></span></div>
-              </div>
-            </section>}
           </div>
 
           <footer className={styles.pageFooter}><span>{companyName ?? 'Hilo'} · Gestión de producción</span><span>Datos de demostración</span></footer>

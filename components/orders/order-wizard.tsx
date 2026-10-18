@@ -1,7 +1,7 @@
 "use client"
 
 import type { FormEvent } from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/tooltip"
 import { demoOrders, type DemoOrder } from "@/lib/orders/demo-data"
 import { readStoredOrders, saveStoredOrders } from "@/lib/orders/demo-storage"
+import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 
 const priceAdjustmentSchema = z.object({
   type: z.enum(["surcharge", "discount"]),
@@ -67,6 +68,7 @@ const priceAdjustmentSchema = z.object({
 const garmentItemSchema = z.object({
   garment: z.string().min(1, "Selecciona una prenda."),
   fit: z.string().min(1, "Selecciona una horma."),
+  color: z.string().trim().min(1, "Selecciona un color."),
   size: z.string().trim().min(1, "Indica una talla."),
   name: z.string(),
   number: z.string(),
@@ -163,9 +165,10 @@ const steps = [
   { title: "Resumen y pago", detail: "Total y abono inicial" },
 ]
 
-const garmentTypes = ["Camiseta", "Pantaloneta", "Sudadera", "Chaqueta", "Medias"]
+const defaultGarmentTypes = ["Camiseta", "Pantaloneta", "Sudadera", "Chaqueta", "Medias"]
 const fits = ["Hombre", "Mujer", "Infantil"]
-const sizes = ["4", "6", "8", "10", "12", "14", "XS", "S", "M", "L", "XL", "XXL"]
+const defaultColors = ["Azul marino", "Blanco", "Negro"]
+const defaultSizes = ["4", "6", "8", "10", "12", "14", "XS", "S", "M", "L", "XL", "XXL"]
 const paymentMethods = ["Transferencia", "Efectivo", "MercadoPago", "Wompi"]
 
 type FormItem = z.infer<typeof garmentItemSchema>
@@ -209,6 +212,7 @@ function defaultItem(garment: string, fit: string): FormItem {
   return {
     garment,
     fit,
+    color: "Azul marino",
     size: "",
     name: "",
     number: "",
@@ -243,6 +247,19 @@ export function OrderWizard() {
   const [bulkGarment, setBulkGarment] = useState("Camiseta")
   const [bulkFit, setBulkFit] = useState("Hombre")
   const [bulkPrice, setBulkPrice] = useState("")
+  const { inventory, error: inventoryError } = useDemoInventory()
+  const garmentTypes = [...new Set([
+    ...defaultGarmentTypes,
+    ...(inventory?.products.map((product) => product.name) ?? []),
+  ])]
+  const availableColors = [...new Set([
+    ...defaultColors,
+    ...(inventory?.products.flatMap((product) => product.variants.map((variant) => variant.color)) ?? []),
+  ])]
+  const availableSizes = [...new Set([
+    ...defaultSizes,
+    ...(inventory?.products.flatMap((product) => product.variants.map((variant) => variant.size)) ?? []),
+  ])]
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderSchema),
     defaultValues: {
@@ -265,8 +282,19 @@ export function OrderWizard() {
   const watchedPaymentStatus = useWatch({ control: form.control, name: "paymentStatus" })
   const watchedPaymentMethod = useWatch({ control: form.control, name: "paymentMethod" })
   const watchedPaid = useWatch({ control: form.control, name: "paid" })
+  const variantOptions = watchedItems.map((item) => {
+    const product = inventory?.products.find((candidate) => candidate.name === item?.garment)
+    return {
+      colors: product ? [...new Set(product.variants.map((variant) => variant.color))] : availableColors,
+      sizes: product ? [...new Set(product.variants.map((variant) => variant.size))] : availableSizes,
+    }
+  })
   const totals = calculateTotals(watchedItems)
   const balance = Math.max(0, totals.grandTotal - (watchedPaid || 0))
+
+  useEffect(() => {
+    if (inventoryError) toast.error(inventoryError)
+  }, [inventoryError])
 
   async function advance() {
     if (step === 2 && form.getValues("paymentStatus") === "Pagado") {
@@ -410,6 +438,7 @@ export function OrderWizard() {
         items: values.items.map((item) => ({
           garment: item.garment,
           fit: item.fit,
+          color: item.color,
           size: item.size,
           name: item.name,
           number: item.number,
@@ -453,7 +482,7 @@ export function OrderWizard() {
             : item.adjustment.value,
         )}`
         : ""
-      return `• ${item.garment} ${item.fit}, talla ${item.size}${item.name ? ` · ${item.name}` : ""}${item.number ? ` · N.º ${item.number}` : ""}: ${money(item.netPrice ?? item.unitPrice ?? 0)}${adjustment}`
+      return `• ${item.garment} ${item.fit}, ${item.color}, talla ${item.size}${item.name ? ` · ${item.name}` : ""}${item.number ? ` · N.º ${item.number}` : ""}: ${money(item.netPrice ?? item.unitPrice ?? 0)}${adjustment}`
     })
     const quoteText = [
       `Cotización ${savedOrder.id}`,
@@ -686,6 +715,7 @@ export function OrderWizard() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Prenda / horma</TableHead>
+                        <TableHead>Color</TableHead>
                         <TableHead>Talla</TableHead>
                         <TableHead>Nombre / apodo</TableHead>
                         <TableHead>Número</TableHead>
@@ -703,6 +733,25 @@ export function OrderWizard() {
                           <TableCell>
                             <Controller
                               control={form.control}
+                              name={`items.${index}.color`}
+                              render={({ field }) => (
+                                <div className="space-y-1">
+                                  <Select value={field.value || null} onValueChange={(value) => field.onChange(value ?? "")}>
+                                    <SelectTrigger aria-label={`Color de fila ${index + 1}`} className="w-32">
+                                      <SelectValue placeholder="Color" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {(variantOptions[index]?.colors ?? availableColors).map((color) => <SelectItem key={color} value={color}>{color}</SelectItem>)}
+                                    </SelectContent>
+                                  </Select>
+                                  <FieldError errors={[form.formState.errors.items?.[index]?.color]} />
+                                </div>
+                              )}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Controller
+                              control={form.control}
                               name={`items.${index}.size`}
                               render={({ field }) => (
                                 <div className="space-y-1">
@@ -711,7 +760,7 @@ export function OrderWizard() {
                                       <SelectValue placeholder="Talla" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {sizes.map((size) => <SelectItem key={size} value={size}>{size}</SelectItem>)}
+                                      {(variantOptions[index]?.sizes ?? availableSizes).map((size) => <SelectItem key={size} value={size}>{size}</SelectItem>)}
                                     </SelectContent>
                                   </Select>
                                   <FieldError errors={[form.formState.errors.items?.[index]?.size]} />
