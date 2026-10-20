@@ -82,7 +82,7 @@ const orderSchema = z.object({
   customer: z.string().trim().min(2, "Ingresa el nombre del cliente."),
   entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
   dueDate: z.string().min(1, "Selecciona la fecha pactada."),
-  salesperson: z.string().min(1, "Selecciona un vendedor."),
+  salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
   garments: z.array(z.object({
     type: z.string().min(1, "Selecciona una prenda."),
     fit: z.string().min(1, "Selecciona una horma."),
@@ -169,7 +169,8 @@ const defaultGarmentTypes = ["Camiseta", "Pantaloneta", "Sudadera", "Chaqueta", 
 const fits = ["Hombre", "Mujer", "Infantil"]
 const defaultColors = ["Azul marino", "Blanco", "Negro"]
 const defaultSizes = ["4", "6", "8", "10", "12", "14", "XS", "S", "M", "L", "XL", "XXL"]
-const paymentMethods = ["Transferencia", "Efectivo", "MercadoPago", "Wompi"]
+const paymentMethods = ["Transferencia", "Efectivo", "Crédito"]
+const customSalespersonValue = "__personalizado__"
 
 type FormItem = z.infer<typeof garmentItemSchema>
 
@@ -208,6 +209,16 @@ function money(value: number) {
   }).format(value)
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] ?? character)
+}
+
 function defaultItem(garment: string, fit: string): FormItem {
   return {
     garment,
@@ -241,9 +252,10 @@ function today() {
   return localDate.toISOString().slice(0, 10)
 }
 
-export function OrderWizard() {
+export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }) {
   const [step, setStep] = useState(0)
   const [savedOrder, setSavedOrder] = useState<DemoOrder | null>(null)
+  const [isCustomSalesperson, setIsCustomSalesperson] = useState(false)
   const [bulkGarment, setBulkGarment] = useState("Camiseta")
   const [bulkFit, setBulkFit] = useState("Hombre")
   const [bulkPrice, setBulkPrice] = useState("")
@@ -514,6 +526,93 @@ export function OrderWizard() {
     }
   }
 
+  function downloadReceipt() {
+    if (!savedOrder) return
+
+    const rows = savedOrder.items.map((item, index) => {
+      const description = [
+        item.garment,
+        item.fit,
+        item.color,
+        `Talla ${item.size}`,
+        item.name,
+        item.number ? `N.º ${item.number}` : "",
+      ].filter((value): value is string => Boolean(value)).map(escapeHtml).join(" · ")
+      const unitPrice = item.netPrice ?? item.unitPrice ?? 0
+
+      return `<tr><td>${index + 1}</td><td>${description}</td><td class="number">${money(unitPrice)}</td></tr>`
+    }).join("")
+    const receipt = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Desprendible ${escapeHtml(savedOrder.id)}</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { color: #172033; font: 14px/1.5 Arial, sans-serif; margin: 0 auto; max-width: 760px; }
+    header { border-bottom: 2px solid #172033; margin-bottom: 24px; padding-bottom: 16px; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 28px 0 10px; }
+    .muted { color: #596579; }
+    .details { display: grid; gap: 8px 24px; grid-template-columns: 1fr 1fr; }
+    .details p { margin: 0; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #d9dee8; padding: 10px 8px; text-align: left; }
+    th { background: #f3f5f8; }
+    .number { text-align: right; white-space: nowrap; }
+    .totals { margin: 18px 0 0 auto; max-width: 320px; }
+    .totals p { display: flex; justify-content: space-between; margin: 8px 0; }
+    .grand-total { border-top: 2px solid #172033; font-size: 18px; font-weight: 700; padding-top: 10px; }
+    footer { border-top: 1px solid #d9dee8; margin-top: 40px; padding-top: 12px; }
+    .print-button { background: #172033; border: 0; border-radius: 6px; color: white; cursor: pointer; font-size: 14px; margin: 20px 0; padding: 12px 18px; }
+    @media print { .print-button { display: none; } }
+  </style>
+</head>
+<body>
+  <button class="print-button" id="print-receipt">Descargar o imprimir como PDF</button>
+  <header>
+    <h1>Desprendible de pedido</h1>
+    <div class="muted">Pedido ${escapeHtml(savedOrder.id)} · ${escapeHtml(new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()))}</div>
+  </header>
+  <section class="details">
+    <p><strong>Cliente:</strong> ${escapeHtml(savedOrder.customer)}</p>
+    <p><strong>Vendedor:</strong> ${escapeHtml(savedOrder.salesperson)}</p>
+    <p><strong>Entrega pactada:</strong> ${escapeHtml(savedOrder.dueDate)}</p>
+    <p><strong>Estado del pago:</strong> ${escapeHtml(savedOrder.paymentStatus ?? "Pendiente")}</p>
+    <p><strong>Medio de pago:</strong> ${escapeHtml(savedOrder.paymentMethod ?? "No registrado")}</p>
+    <p><strong>Cantidad:</strong> ${savedOrder.quantity} prendas</p>
+  </section>
+  <h2>Detalle del pedido</h2>
+  <table>
+    <thead><tr><th>#</th><th>Prenda</th><th class="number">Valor unitario</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <section class="totals">
+    <p><span>Total</span><strong>${money(savedOrder.total)}</strong></p>
+    <p><span>Abono recibido</span><span>${money(savedOrder.paid)}</span></p>
+    <p class="grand-total"><span>Saldo pendiente</span><span>${money(Math.max(savedOrder.total - savedOrder.paid, 0))}</span></p>
+  </section>
+  <footer class="muted">Este desprendible corresponde al pedido ${escapeHtml(savedOrder.id)}.</footer>
+</body>
+</html>`
+
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      toast.error("El navegador bloqueó la ventana del desprendible. Permite ventanas emergentes e inténtalo de nuevo.")
+      return
+    }
+
+    printWindow.document.open()
+    printWindow.document.write(receipt)
+    printWindow.document.close()
+    printWindow.document.getElementById("print-receipt")?.addEventListener("click", () => {
+      printWindow.print()
+    })
+    printWindow.focus()
+    window.setTimeout(() => printWindow.print(), 250)
+  }
+
   function handleWizardSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (step < steps.length - 1) {
@@ -585,16 +684,40 @@ export function OrderWizard() {
                     control={form.control}
                     name="salesperson"
                     render={({ field }) => (
-                      <Select value={field.value || null} onValueChange={(value) => field.onChange(value ?? "")}>
-                        <SelectTrigger className="w-full" id="salesperson">
-                          <SelectValue placeholder="Selecciona un vendedor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {["María Gómez", "Andrés Peña", "Laura Ríos"].map((name) => (
-                            <SelectItem key={name} value={name}>{name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-2">
+                        <Select
+                          value={isCustomSalesperson ? customSalespersonValue : field.value || null}
+                          onValueChange={(value) => {
+                            if (value === customSalespersonValue) {
+                              setIsCustomSalesperson(true)
+                              field.onChange("")
+                            } else if (value) {
+                              setIsCustomSalesperson(false)
+                              field.onChange(value)
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full" id="salesperson">
+                            <SelectValue placeholder="Selecciona un vendedor" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {salespersonNames.map((name) => (
+                              <SelectItem key={name} value={name}>{name}</SelectItem>
+                            ))}
+                            <SelectItem value={customSalespersonValue}>Nombre personalizado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {isCustomSalesperson && (
+                          <Input
+                            autoComplete="name"
+                            aria-label="Nombre personalizado del vendedor"
+                            maxLength={100}
+                            onChange={(event) => field.onChange(event.target.value)}
+                            placeholder="Escribe el nombre del vendedor"
+                            value={field.value}
+                          />
+                        )}
+                      </div>
                     )}
                   />
                   <FieldError errors={[form.formState.errors.salesperson]} />
@@ -1151,12 +1274,20 @@ export function OrderWizard() {
                       <div>
                         <p className="font-medium">Pedido {savedOrder.id} guardado</p>
                         <p className="text-sm opacity-80">
-                          Comparte la cotización con el cliente. Esta pantalla permanecerá abierta.
+                          El desprendible está listo para descargar o compartir con el cliente.
                         </p>
                       </div>
-                      <Button className="w-full" onClick={() => void shareQuote()} type="button">
-                        Compartir cotización
-                      </Button>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button className="w-full" onClick={downloadReceipt} type="button">
+                          Descargar desprendible PDF
+                        </Button>
+                        <Button className="w-full" onClick={() => void shareQuote()} type="button" variant="outline">
+                          Compartir cotización
+                        </Button>
+                      </div>
+                      <p className="text-xs opacity-80">
+                        Al descargar, elige «Guardar como PDF» en la ventana de impresión.
+                      </p>
                       <div className="grid gap-2 sm:grid-cols-2">
                         <Button
                           className="w-full"

@@ -8,7 +8,9 @@ import {
   EllipsisIcon,
   ListFilterIcon,
   PlusIcon,
+  RotateCcwIcon,
   SearchIcon,
+  Trash2Icon,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -37,13 +39,20 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
 import {
-  formatShortDate,
   garmentProductionPhases,
   getOrderProgress,
   getPaymentStatus,
@@ -52,6 +61,11 @@ import {
   type OrderStatus,
   type DemoOrder,
 } from "@/lib/orders/demo-data"
+import {
+  deleteOrderPermanently,
+  moveOrderToTrash,
+  restoreOrderFromTrash,
+} from "@/lib/orders/demo-storage"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
 
 const statusTone: Record<OrderStatus, string> = {
@@ -65,6 +79,24 @@ const statusTone: Record<OrderStatus, string> = {
   Entregado: "border-emerald-200 bg-emerald-50 text-emerald-800",
 }
 
+function filterOrders(
+  orders: DemoOrder[],
+  query: string,
+  statusFilter: string,
+  paymentFilter: string,
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase("es")
+  return orders.filter((order) => {
+    const matchesQuery = `${order.id} ${order.customer} ${order.item}`
+      .toLocaleLowerCase("es")
+      .includes(normalizedQuery)
+    const matchesStatus = statusFilter === "Todos" || getOrderStatus(order) === statusFilter
+    const matchesPayment = paymentFilter === "Todos"
+      || getPaymentStatus(order) === paymentFilter
+    return matchesQuery && matchesStatus && matchesPayment
+  })
+}
+
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   return (
     <Badge variant="outline" className={statusTone[status]}>
@@ -75,27 +107,54 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
 
 export function OrdersList() {
   const router = useRouter()
-  const { orders, error } = useDemoOrders()
+  const { orders, trashedOrders, error } = useDemoOrders()
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("Todos")
   const [paymentFilter, setPaymentFilter] = useState("Todos")
+  const [orderToTrash, setOrderToTrash] = useState<DemoOrder | null>(null)
+  const [orderToDelete, setOrderToDelete] = useState<DemoOrder | null>(null)
 
   useEffect(() => {
     if (error) toast.error(error)
   }, [error])
 
-  const filteredOrders = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("es")
-    return orders.filter((order) => {
-      const matchesQuery = `${order.id} ${order.customer} ${order.item}`
-        .toLocaleLowerCase("es")
-        .includes(normalizedQuery)
-      const matchesStatus = statusFilter === "Todos" || getOrderStatus(order) === statusFilter
-      const matchesPayment = paymentFilter === "Todos"
-        || getPaymentStatus(order) === paymentFilter
-      return matchesQuery && matchesStatus && matchesPayment
-    })
-  }, [orders, paymentFilter, query, statusFilter])
+  const filteredOrders = useMemo(
+    () => filterOrders(orders, query, statusFilter, paymentFilter),
+    [orders, paymentFilter, query, statusFilter],
+  )
+  const filteredTrashedOrders = useMemo(
+    () => filterOrders(trashedOrders, query, statusFilter, paymentFilter),
+    [trashedOrders, paymentFilter, query, statusFilter],
+  )
+
+  function moveOrder(order: DemoOrder) {
+    try {
+      moveOrderToTrash(order.id)
+      setOrderToTrash(null)
+      toast.success(`El pedido ${order.id} se movió a la papelera.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo mover el pedido a la papelera.")
+    }
+  }
+
+  function restoreOrder(order: DemoOrder) {
+    try {
+      restoreOrderFromTrash(order.id)
+      toast.success(`El pedido ${order.id} se restauró.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo restaurar el pedido.")
+    }
+  }
+
+  function deleteOrder(order: DemoOrder) {
+    try {
+      deleteOrderPermanently(order.id)
+      setOrderToDelete(null)
+      toast.success(`El pedido ${order.id} se eliminó definitivamente.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo eliminar el pedido.")
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -120,11 +179,11 @@ export function OrdersList() {
         Datos de demostración: los cambios se guardan en este navegador y todavía no se sincronizan con Supabase.
       </div>
 
-      <Tabs defaultValue="tabla" className="gap-4">
+      <Tabs defaultValue="activos" className="gap-4">
         <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
           <TabsList>
-            <TabsTrigger value="tabla">Vista tabla</TabsTrigger>
-            <TabsTrigger value="kanban">Vista Kanban</TabsTrigger>
+            <TabsTrigger value="activos">Pedidos activos ({orders.length})</TabsTrigger>
+            <TabsTrigger value="papelera">Papelera ({trashedOrders.length})</TabsTrigger>
           </TabsList>
           <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_180px_160px]">
             <div className="relative">
@@ -164,7 +223,7 @@ export function OrdersList() {
           </div>
         </div>
 
-        <TabsContent value="tabla">
+        <TabsContent value="activos">
           <Card className="gap-0 py-0">
             <CardHeader className="border-b py-4">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -233,6 +292,13 @@ export function OrdersList() {
                             }}>
                               Copiar número
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setOrderToTrash(order)}
+                            >
+                              <Trash2Icon />
+                              Mover a la papelera
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -250,87 +316,127 @@ export function OrdersList() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="kanban">
-          <div className="-mx-4 overflow-x-auto px-4 pb-3 md:-mx-6 md:px-6">
-            <div className="flex min-w-max items-start gap-4">
-              <section className="w-[min(82vw,320px)] shrink-0 rounded-xl border bg-muted/30 p-3" key="sin-iniciar">
-                <div className="mb-3 flex items-center justify-between px-1">
-                  <div>
-                    <h2 className="text-sm font-semibold">Sin iniciar</h2>
-                    <p className="text-xs text-muted-foreground">Pendiente de comenzar</p>
-                  </div>
-                  <Badge variant="secondary">
-                    {filteredOrders.filter((order) => getPredominantPhase(order) === 0).length}
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  {filteredOrders.filter((order) => getPredominantPhase(order) === 0).map((order) => (
-                    <OrderKanbanCard key={order.id} order={order} onOpen={() => router.push(`/dashboard/orders/${encodeURIComponent(order.id)}`)} />
-                  ))}
-                </div>
-              </section>
-              {garmentProductionPhases.map((stage) => {
-                const stageOrders = filteredOrders.filter((order) => getPredominantPhase(order) === stage.id)
-                return (
-                  <section className="w-[min(82vw,320px)] shrink-0 rounded-xl border bg-muted/30 p-3" key={stage.id}>
-                    <div className="mb-3 flex items-center justify-between px-1">
-                      <div>
-                        <h2 className="text-sm font-semibold">Fase {stage.id}</h2>
-                        <p className="text-xs text-muted-foreground">{stage.name}</p>
+        <TabsContent value="papelera">
+          <Card className="gap-0 py-0">
+            <CardHeader className="border-b py-4">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {`${filteredTrashedOrders.length} pedidos en la papelera`}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Los pedidos se conservan aquí hasta que los restaures.
+              </p>
+            </CardHeader>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Pedido</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Prenda principal</TableHead>
+                  <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead><span className="sr-only">Acciones</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredTrashedOrders.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-medium">{order.id}</TableCell>
+                    <TableCell className="max-w-52 truncate">{order.customer}</TableCell>
+                    <TableCell>{order.item}</TableCell>
+                    <TableCell className="text-right tabular-nums">{order.quantity}</TableCell>
+                    <TableCell><OrderStatusBadge status={getOrderStatus(order)} /></TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          onClick={() => restoreOrder(order)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <RotateCcwIcon data-icon="inline-start" />
+                          Restaurar
+                        </Button>
+                        <Button
+                          aria-label={`Eliminar definitivamente el pedido ${order.id}`}
+                          onClick={() => setOrderToDelete(order)}
+                          size="icon-sm"
+                          variant="destructive"
+                        >
+                          <Trash2Icon />
+                        </Button>
                       </div>
-                      <Badge variant="secondary">{stageOrders.length}</Badge>
-                    </div>
-                    <div className="space-y-2">
-                      {stageOrders.map((order) => (
-                        <OrderKanbanCard
-                          key={order.id}
-                          onOpen={() => router.push(`/dashboard/orders/${encodeURIComponent(order.id)}`)}
-                          order={order}
-                        />
-                      ))}
-                      {stageOrders.length === 0 && (
-                        <p className="rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">
-                          Sin pedidos en esta fase predominante
-                        </p>
-                      )}
-                    </div>
-                  </section>
-                )
-              })}
-            </div>
-          </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filteredTrashedOrders.length === 0 && (
+                  <TableRow>
+                    <TableCell className="h-28 text-center text-muted-foreground" colSpan={6}>
+                      La papelera está vacía o no hay pedidos que coincidan con estos filtros.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Card>
         </TabsContent>
       </Tabs>
-    </div>
-  )
-}
 
-function OrderKanbanCard({
-  onOpen,
-  order,
-}: {
-  onOpen: () => void
-  order: DemoOrder
-}) {
-  return (
-    <button
-      className="w-full rounded-lg border bg-card p-3 text-left transition-colors hover:bg-muted/50"
-      onClick={onOpen}
-      type="button"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">{order.id}</span>
-        <OrderStatusBadge status={getOrderStatus(order)} />
-      </div>
-      <p className="mt-2 truncate text-sm">{order.customer}</p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {order.quantity} prendas · entrega {formatShortDate(order.dueDate)}
-      </p>
-      <div className="mt-3 flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">Avance global</span>
-        <span className="font-medium tabular-nums">{getOrderProgress(order).toFixed(1)}%</span>
-      </div>
-      <Progress className="mt-1.5" value={getOrderProgress(order)} />
-    </button>
+      <Dialog open={orderToTrash !== null} onOpenChange={(open) => {
+        if (!open) setOrderToTrash(null)
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mover pedido a la papelera</DialogTitle>
+            <DialogDescription>
+              {orderToTrash
+                ? `El pedido ${orderToTrash.id} dejará de aparecer en las listas activas. Podrás restaurarlo desde la papelera cuando quieras.`
+                : "El pedido dejará de aparecer en las listas activas y podrás restaurarlo desde la papelera."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setOrderToTrash(null)} variant="outline">
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                if (orderToTrash) moveOrder(orderToTrash)
+              }}
+              variant="destructive"
+            >
+              <Trash2Icon data-icon="inline-start" />
+              Mover a la papelera
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={orderToDelete !== null} onOpenChange={(open) => {
+        if (!open) setOrderToDelete(null)
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar pedido definitivamente</DialogTitle>
+            <DialogDescription>
+              {orderToDelete
+                ? `El pedido ${orderToDelete.id} se borrará de forma permanente y no podrá restaurarse.`
+                : "El pedido se borrará de forma permanente y no podrá restaurarse."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setOrderToDelete(null)} variant="outline">
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                if (orderToDelete) deleteOrder(orderToDelete)
+              }}
+              variant="destructive"
+            >
+              <Trash2Icon data-icon="inline-start" />
+              Eliminar definitivamente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
