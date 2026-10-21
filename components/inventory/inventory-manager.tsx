@@ -22,16 +22,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  applyInventoryMovement,
   getVariantReservations,
   MAIN_WAREHOUSE,
-  saveInventoryState,
   type InventoryMovementType,
   type InventoryProduct,
-  type InventoryState,
 } from "@/lib/inventory/demo-inventory"
-import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
+import {
+  saveSupabaseInventoryMovement,
+  saveSupabaseProduct,
+  useDemoInventory,
+} from "@/lib/inventory/use-demo-inventory"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 const movementTypes: InventoryMovementType[] = ["Entrada", "Salida", "Transferencia", "Ajuste"]
 const initialProductForm = {
@@ -54,7 +56,8 @@ type ProductForm = typeof initialProductForm
 
 export function InventoryManager() {
   const { orders, error: ordersError } = useDemoOrders()
-  const { inventory, error: storageError } = useDemoInventory()
+  const { inventory, error: storageError, refresh: refreshInventory } = useDemoInventory()
+  const { companyId } = useOrdersOperator()
   const [query, setQuery] = useState("")
   const [warehouseFilter, setWarehouseFilter] = useState("Todos")
   const [visibleRows, setVisibleRows] = useState(12)
@@ -125,17 +128,6 @@ export function InventoryManager() {
       - (reservations.get(variant.id) ?? 0) <= variant.minStock,
   ).length
 
-  function persist(nextState: InventoryState) {
-    try {
-      saveInventoryState(nextState)
-      return true
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo guardar el inventario."
-      toast.error(message)
-      return false
-    }
-  }
-
   function updateProductField<K extends keyof ProductForm>(field: K, value: ProductForm[K]) {
     setProductForm((current) => ({ ...current, [field]: value }))
   }
@@ -159,7 +151,7 @@ export function InventoryManager() {
     })
   }
 
-  function saveProduct(event: FormEvent<HTMLFormElement>) {
+  async function saveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!inventory) return
     const sku = productForm.sku.trim()
@@ -211,86 +203,14 @@ export function InventoryManager() {
       }
     }
 
-    if (editingProductId) {
-      const colorOptions = [...new Set(productForm.colors.split(",").map((color) => color.trim()).filter(Boolean))]
-      const sizeOptions = [...new Set(productForm.sizes.split(",").map((size) => size.trim()).filter(Boolean))]
-      const initialStock = Number(productForm.initialStock)
-      if (Boolean(colorOptions.length) !== Boolean(sizeOptions.length)) {
-        toast.error("Para agregar variantes, indica al menos un color y una talla.")
-        return
-      }
-      if (!Number.isInteger(initialStock) || initialStock < 0) {
-        toast.error("El stock inicial de las nuevas variantes debe ser un entero igual o mayor a cero.")
-        return
-      }
-      const nextProducts = inventory.products.map((product) => {
-        if (product.id !== editingProductId) return product
-        const existingVariants = product.variants.map((variant) => ({ ...variant, minStock, maxStock }))
-        const existingCombinations = new Set(
-          product.variants.map((variant) => `${variant.color.toLocaleLowerCase()}\u0000${variant.size.toLocaleLowerCase()}`),
-        )
-        const addedVariants = colorOptions.flatMap((color) =>
-          sizeOptions.flatMap((size) => {
-            const combination = `${color.toLocaleLowerCase()}\u0000${size.toLocaleLowerCase()}`
-            if (existingCombinations.has(combination)) return []
-            const variantId = crypto.randomUUID()
-            return [{
-              id: variantId,
-              color,
-              size,
-              barcode: productForm.barcode.trim()
-                ? `${productForm.barcode.trim()}-${variantId.slice(0, 8)}`
-                : `${sku}-${variantId.slice(0, 8)}`,
-              stockByWarehouse: { [MAIN_WAREHOUSE]: initialStock },
-              minStock,
-              maxStock,
-            }]
-          }),
-        )
-        return {
-          ...product,
-          sku,
-          name,
-          description: productForm.description.trim(),
-          category: productForm.category.trim() || "Sin categoría",
-          gender: productForm.gender,
-          price,
-          barcode: productForm.barcode.trim(),
-          imageUrl,
-          variants: [...existingVariants, ...addedVariants],
-        }
-      })
-      const editedProductAfterSave = nextProducts.find((product) => product.id === editingProductId)
-      const addedVariants = (editedProductAfterSave?.variants.length ?? 0) - (editedProduct?.variants.length ?? 0)
-      const newVariantMovements = (editedProductAfterSave?.variants.slice(-addedVariants) ?? [])
-        .filter(() => addedVariants > 0 && initialStock > 0)
-        .map((variant) => ({
-          id: crypto.randomUUID(),
-          date: new Date().toISOString(),
-          type: "Entrada" as const,
-          productName: name,
-          variantName: `${variant.color} · ${variant.size}`,
-          quantity: initialStock,
-          warehouse: MAIN_WAREHOUSE,
-          reference: "Alta de variante",
-          note: "Stock inicial de la variante.",
-        }))
-      const nextState = {
-        ...inventory,
-        products: nextProducts,
-        movements: [...newVariantMovements, ...inventory.movements],
-      }
-      if (!persist(nextState)) return
-      setEditingProductId(null)
-      setProductForm(initialProductForm)
-      toast.success(`Ficha actualizada. Nuevas variantes: ${addedVariants}.`)
-      return
-    }
-
     const colorOptions = [...new Set(productForm.colors.split(",").map((color) => color.trim()).filter(Boolean))]
     const sizeOptions = [...new Set(productForm.sizes.split(",").map((size) => size.trim()).filter(Boolean))]
     const initialStock = Number(productForm.initialStock)
-    if (!colorOptions.length || !sizeOptions.length) {
+    if (Boolean(colorOptions.length) !== Boolean(sizeOptions.length)) {
+      toast.error("Para agregar variantes, indica al menos un color y una talla.")
+      return
+    }
+    if (!editingProductId && (!colorOptions.length || !sizeOptions.length)) {
       toast.error("Agrega al menos un color y una talla separados por coma.")
       return
     }
@@ -298,68 +218,55 @@ export function InventoryManager() {
       toast.error("El stock inicial debe ser un entero igual o mayor a cero.")
       return
     }
-    const id = crypto.randomUUID()
-    const productId = `product-${id}`
     const barcodePrefix = productForm.barcode.trim()
-    const product: InventoryProduct = {
-      id: productId,
-      sku,
-      name,
-      description: productForm.description.trim(),
-      category: productForm.category.trim() || "Sin categoría",
-      gender: productForm.gender,
-      price,
-      barcode: barcodePrefix,
-      imageUrl,
-      variants: colorOptions.flatMap((color) =>
-        sizeOptions.map((size) => {
-          const variantId = crypto.randomUUID()
-          return {
-          id: variantId,
-          color,
-          size,
-          barcode: barcodePrefix
-            ? `${barcodePrefix}-${variantId.slice(0, 8)}`
-            : `${sku}-${variantId.slice(0, 8)}`,
-          stockByWarehouse: { [MAIN_WAREHOUSE]: initialStock },
-          minStock,
-          maxStock,
-          }
-        }),
-      ),
+    const variantInputs = colorOptions.flatMap((color) =>
+      sizeOptions.map((size) => ({
+        color,
+        size,
+        barcode: `${barcodePrefix || sku}-${color}-${size}`,
+      })),
+    )
+    try {
+      await saveSupabaseProduct(companyId, {
+        id: editingProductId,
+        sku,
+        name,
+        description: productForm.description.trim(),
+        category: productForm.category.trim() || "Sin categoría",
+        gender: productForm.gender,
+        price,
+        barcode: barcodePrefix,
+        imageUrl,
+        variants: variantInputs,
+        initialStock,
+        minStock,
+        maxStock,
+      })
+      await refreshInventory()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar el producto.")
+      return
     }
-    const openingMovements = initialStock > 0
-      ? product.variants.map((variant) => ({
-          id: crypto.randomUUID(),
-          date: new Date().toISOString(),
-          type: "Entrada" as const,
-          productName: product.name,
-          variantName: `${variant.color} · ${variant.size}`,
-          quantity: initialStock,
-          warehouse: MAIN_WAREHOUSE,
-          reference: "Inventario inicial",
-          note: "Stock inicial al crear el producto.",
-        }))
-      : []
-    if (!persist({
-      ...inventory,
-      products: [product, ...inventory.products],
-      movements: [...openingMovements, ...inventory.movements],
-    })) return
     setProductForm(initialProductForm)
-    toast.success(`Producto creado con ${product.variants.length} variantes de color y talla.`)
+    setEditingProductId(null)
+    toast.success(editingProductId
+      ? "Ficha y variantes guardadas correctamente."
+      : `Producto creado con ${variantInputs.length} variantes de color y talla.`)
   }
 
-  function saveMovement(event: FormEvent<HTMLFormElement>) {
+  async function saveMovement(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!inventory) return
     const quantity = Number(movementForm.quantity)
     try {
-      const nextState = applyInventoryMovement(inventory, {
+      if (!Number.isInteger(quantity) || quantity === 0) {
+        throw new Error("Ingresa una cantidad entera distinta de cero.")
+      }
+      await saveSupabaseInventoryMovement(companyId, {
         ...movementForm,
         quantity,
-      }, reservations)
-      if (!persist(nextState)) return
+      })
+      await refreshInventory()
       setMovementForm((current) => ({
         ...current,
         quantity: "1",
@@ -397,7 +304,7 @@ export function InventoryManager() {
         className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
         role="note"
       >
-        Inventario de demostración guardado en este navegador. Para compartir existencias entre usuarios se requiere conectar una base de datos.
+        El catálogo, las existencias y los movimientos se guardan en Supabase para la empresa activa.
       </div>
 
       <section aria-label="Resumen de inventario" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

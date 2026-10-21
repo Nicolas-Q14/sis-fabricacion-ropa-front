@@ -39,13 +39,15 @@ import {
   getPaymentStatus,
   type DemoOrder,
 } from "@/lib/orders/demo-data"
-import { upsertStoredOrder } from "@/lib/orders/demo-storage"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+import { addSupabasePayment, moveSupabaseOrderItems } from "@/lib/orders/supabase-orders"
 import { GarmentTraceSheet } from "@/components/orders/garment-trace-sheet"
 import { Progress } from "@/components/ui/progress"
+import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 export function OrderDetail({ orderId }: { orderId: string }) {
-  const { orders, error } = useDemoOrders()
+  const { orders, error, loading, refresh } = useDemoOrders()
+  const operator = useOrdersOperator()
   const storedOrder = orders.find((item) => item.id === orderId) ?? null
   const order = storedOrder
     ? { ...storedOrder, status: getOrderStatus(storedOrder) }
@@ -53,36 +55,33 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
+  const [paymentMethod, setPaymentMethod] = useState("Efectivo")
 
   useEffect(() => {
     if (error) toast.error(error)
   }, [error])
 
-  function updateOrder(updatedOrder: DemoOrder, successMessage: string) {
+  async function updateOrder(updatedOrder: DemoOrder, successMessage: string) {
     try {
-      const status = getOrderStatus(updatedOrder)
-      const statusChanged = status !== updatedOrder.status
-      const orderToSave: DemoOrder = {
-        ...updatedOrder,
-        status,
-        timeline: statusChanged
-          ? [
-              {
-                date: new Intl.DateTimeFormat("es-CO", {
-                  day: "2-digit",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }).format(new Date()),
-                title: `Estado actualizado automáticamente: ${status}`,
-                operator: "Sistema",
-              },
-              ...updatedOrder.timeline,
-            ]
-          : updatedOrder.timeline,
+      const changedItems = updatedOrder.items.filter((item, index) =>
+        item.id && item.production?.currentPhase !== order?.items[index]?.production?.currentPhase,
+      )
+      const targetPhases = [...new Set(changedItems.map((item) => item.production?.currentPhase))]
+      const targetPhase = targetPhases[0]
+      if (targetPhases.length !== 1 || targetPhase === undefined) {
+        throw new Error("No se pudo determinar la nueva fase de las prendas seleccionadas.")
       }
-      upsertStoredOrder(orderToSave)
-      toast.success(statusChanged ? `${successMessage} Estado: ${status}.` : successMessage)
+      const itemIds = changedItems.map((item) => item.id)
+      if (itemIds.some((id) => !id)) throw new Error("Una prenda no tiene identificador en Supabase.")
+      await moveSupabaseOrderItems(
+        operator.companyId,
+        updatedOrder.id,
+        itemIds.filter((id): id is string => Boolean(id)),
+        targetPhase,
+        operator.name,
+      )
+      await refresh()
+      toast.success(successMessage)
       return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo guardar el cambio.")
@@ -90,7 +89,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     }
   }
 
-  function confirmPayment() {
+  async function confirmPayment() {
     if (!order) return
     const amount = Number(paymentAmount)
     const outstanding = order.total - order.paid
@@ -98,24 +97,26 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       toast.error(`Ingresa un abono entre $1 y ${formatCurrency(outstanding)}.`)
       return
     }
-    updateOrder(
-      {
-        ...order,
-        paid: order.paid + amount,
-        paymentStatus: order.paid + amount >= order.total ? "Pagado" : "Abonado",
-      },
-      `Abono de ${formatCurrency(amount)} registrado.`,
-    )
-    setPaymentAmount("")
-    setPaymentOpen(false)
+    try {
+      await addSupabasePayment(operator.companyId, order.id, amount, paymentMethod)
+      await refresh()
+      toast.success(`Abono de ${formatCurrency(amount)} registrado.`)
+      setPaymentAmount("")
+      setPaymentOpen(false)
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "No se pudo registrar el abono.")
+    }
   }
 
+  if (loading && !order) {
+    return <p className="py-16 text-center text-sm text-muted-foreground">Cargando pedido…</p>
+  }
   if (!order) {
     return (
       <div className="mx-auto max-w-xl space-y-3 py-16 text-center">
         <h1 className="text-xl font-semibold">No encontramos ese pedido</h1>
         <p className="text-sm text-muted-foreground">
-          El pedido no existe en los datos disponibles de esta demostración.
+          El pedido no existe en la empresa activa o no tienes permisos para consultarlo.
         </p>
         <Button render={<Link href="/dashboard/orders" />} variant="outline">
           Volver a pedidos
@@ -305,7 +306,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <DialogHeader>
             <DialogTitle>Registrar abono</DialogTitle>
             <DialogDescription>
-              Saldo disponible: {formatCurrency(balance)}. Este registro se guardará localmente en esta demostración.
+              Saldo disponible: {formatCurrency(balance)}. El abono se guardará como una transacción.
             </DialogDescription>
           </DialogHeader>
           <label className="space-y-2 text-sm font-medium">
@@ -320,9 +321,21 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               value={paymentAmount}
             />
           </label>
+          <label className="space-y-2 text-sm font-medium">
+            Método de pago
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              onChange={(event) => setPaymentMethod(event.target.value)}
+              value={paymentMethod}
+            >
+              {["Transferencia", "Efectivo", "Crédito"].map((method) => (
+                <option key={method}>{method}</option>
+              ))}
+            </select>
+          </label>
           <DialogFooter>
             <Button onClick={() => setPaymentOpen(false)} variant="outline">Cancelar</Button>
-            <Button onClick={confirmPayment}>Guardar abono</Button>
+            <Button onClick={() => void confirmPayment()}>Guardar abono</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

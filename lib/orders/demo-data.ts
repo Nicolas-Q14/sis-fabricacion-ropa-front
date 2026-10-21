@@ -31,6 +31,9 @@ export type OrderStatus = (typeof garmentProductionPhases)[number]["name"]
 export type PaymentStatus = "Pendiente" | "Abonado" | "Pagado"
 
 export type OrderGarment = {
+  id?: string
+  inventoryVariantId?: string | null
+  inventoryWarehouseId?: string | null
   garment: string
   fit: string
   color?: string
@@ -56,6 +59,11 @@ export type OrderGarment = {
 
 export type DemoOrder = {
   id: string
+  companyId?: string
+  entryDate?: string
+  createdAt?: string
+  deletedAt?: string | null
+  archivedAt?: string | null
   customer: string
   item: string
   quantity: number

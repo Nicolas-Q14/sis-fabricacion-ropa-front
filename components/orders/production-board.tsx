@@ -43,15 +43,13 @@ import {
   formatShortDate,
   garmentProductionPhases,
   getOrderProgress,
-  getOrderStatus,
   getPhaseDistributionSummary,
   getPredominantPhase,
-  updateGarmentProductionForOrderMove,
   type DemoOrder,
   type GarmentPhaseReached,
 } from "@/lib/orders/demo-data"
-import { upsertStoredOrder } from "@/lib/orders/demo-storage"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+import { moveSupabaseOrder } from "@/lib/orders/supabase-orders"
 
 const phaseColors = {
   1: {
@@ -102,7 +100,7 @@ type PendingMove = {
 }
 
 export function ProductionBoard() {
-  const { orders, error } = useDemoOrders()
+  const { orders, error, loading, refresh } = useDemoOrders()
   const operator = useOrdersOperator()
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const sensors = useSensors(
@@ -129,32 +127,18 @@ export function ProductionBoard() {
     setPendingMove({ order, targetPhase: targetPhase as GarmentPhaseReached })
   }
 
-  function confirmMove() {
+  async function confirmMove() {
     if (!pendingMove) return
     try {
-      const updatedOrder: DemoOrder = {
-        ...pendingMove.order,
-        items: pendingMove.order.items.map((item) =>
-          updateGarmentProductionForOrderMove(item, pendingMove.targetPhase, operator),
-        ),
-        timeline: [
-          {
-            date: new Intl.DateTimeFormat("es-CO", {
-              day: "2-digit",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            }).format(new Date()),
-            title: `Todas las prendas movidas a ${phaseName(pendingMove.targetPhase)} desde el tablero de producción`,
-            operator: operator.name,
-          },
-          ...pendingMove.order.timeline,
-        ],
-      }
-      updatedOrder.status = getOrderStatus(updatedOrder)
-      upsertStoredOrder(updatedOrder)
+      await moveSupabaseOrder(
+        operator.companyId,
+        pendingMove.order.id,
+        pendingMove.targetPhase,
+        operator.name,
+      )
+      await refresh()
       toast.success(
-        `${updatedOrder.items.length} prendas actualizadas a ${phaseName(pendingMove.targetPhase)}.`,
+        `${pendingMove.order.items.length} prendas actualizadas a ${phaseName(pendingMove.targetPhase)}.`,
       )
       setPendingMove(null)
     } catch (error) {
@@ -175,8 +159,9 @@ export function ProductionBoard() {
         className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
         role="note"
       >
-        Tablero de demostración: la trazabilidad se guarda localmente en este navegador.
+        El avance se sincroniza con Supabase y cada verificación queda en el historial de la prenda.
       </div>
+      {loading && <p className="text-sm text-muted-foreground">Sincronizando producción…</p>}
       <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} sensors={sensors}>
         <div className="-mx-4 overflow-x-auto px-4 pb-3 md:-mx-6 md:px-6">
           <div className="flex min-w-max items-start gap-4">
@@ -229,7 +214,7 @@ export function ProductionBoard() {
             <Button onClick={() => setPendingMove(null)} variant="outline">
               Cancelar
             </Button>
-            <Button onClick={confirmMove}>Sí, cambiar todas las prendas</Button>
+            <Button             onClick={() => void confirmMove()}>Sí, cambiar todas las prendas</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

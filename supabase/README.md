@@ -105,20 +105,53 @@ notificación al correo anterior se envía al confirmarse el cambio; la verifica
 se envía al nuevo correo. No se cambia la dirección hasta completar la
 verificación que requiera la configuración de Auth.
 
+## Pedidos e inventario para una sola empresa
+
+La migración `migrations/20261020180000_orders_inventory_multitenant.sql`
+agrega clientes, pedidos, prendas personalizadas, ocho fases de producción,
+eventos de auditoría, abonos e inventario por variante y bodega. Requiere que
+las migraciones anteriores hayan creado `companies`, `user_roles` y
+`public.is_superadmin()`. Aplícala después de las migraciones de roles. Luego
+aplica `migrations/20261021140000_single_company_orders_inventory.sql` para
+quitar la dependencia de filas en `companies`.
+
+La migración de espacio único asigna las tablas de pedidos e inventario a una
+clave interna fija (`00000000-0000-0000-0000-000000000001`), no a un registro de
+`companies`. Los pedidos, prendas, pagos, eventos y existencias existentes se
+consolidan en ese espacio. No borra datos de `companies` ni de `user_roles`.
+RLS permite consultar y operar ese espacio solo a usuarios con un rol
+`superadmin`, `admin` o `gerente_produccion`; los roles globales no requieren
+`company_id`.
+
+Antes de crear pedidos, configura el catálogo, la bodega principal, las
+variantes y las existencias iniciales.
+Cada prenda debe asociarse a una variante y una bodega y contar con stock libre
+antes de registrarse como pedido. El RPC de alta bloquea y valida existencias
+para crear reservas concurrentes de forma segura. La entrega de la última
+prenda ejecuta en una misma transacción el descuento de stock y el registro de
+movimientos; si falta existencia, falla también el cambio de fase. Los eventos
+de producción son append-only y el retroceso no borra verificaciones anteriores.
+
+Las pantallas de pedidos, producción e inventario usan el cliente público de
+Supabase y dependen de estas políticas y RPC. Ya no buscan una empresa activa en
+`companies`; todos los usuarios autorizados comparten el espacio único. Los
+datos antiguos de `localStorage` permanecen intactos y no se importan
+automáticamente; deben migrarse por separado y vincular cada prenda con una
+variante de inventario.
+
 ## Aplicación web
 
-La ruta `/dashboard` consulta el usuario, sus roles y, para las asignaciones
-antiguas, las empresas permitidas en el servidor. Si no encuentra un rol o la
-consulta RLS falla, niega el acceso y muestra cómo proceder. Los perfiles
-independientes de la empresa conservan su rol aunque existan empresas heredadas
-en la base de datos.
+Configura `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` en el
+entorno de la aplicación. La clave pública se usa desde el navegador y todas las
+operaciones dependen de RLS; no incluyas la `service_role key` en el cliente.
 
-Los pedidos e indicadores del dashboard siguen siendo datos de demostración. El
-módulo de inventario tiene catálogo por variante, existencias, movimientos y
-reservas enlazadas con pedidos, pero actualmente persiste en `localStorage` del
-navegador: no sincroniza datos entre usuarios ni dispositivos y no sustituye una
-base de datos. La reserva se recalcula al guardar cambios de pedidos y la
-entrega genera el descuento de existencias. Para producción, pedidos e
-inventario deberán migrarse a tablas reales con transacciones y políticas RLS
-que autoricen por perfil de usuario; no necesitan aislarse por `company_id`
-mientras el sistema corresponda a una única empresa y sede.
+Los módulos de pedidos, pagos, producción e inventario leen y escriben en las
+tablas de estas migraciones. Las altas de pedidos, los pagos, las fases y los
+movimientos de existencias usan RPC o triggers para conservar la atomicidad y
+la auditoría. La interfaz usa el espacio único y actualiza los datos con
+Supabase Realtime.
+
+Las migraciones no importan los datos ya guardados en `localStorage`. Se
+conservan en el navegador y deben transformarse y cargarse por separado si se
+quieren mantener; antes de crear pedidos en Supabase, configura el catálogo, la
+bodega principal, las variantes y las existencias.

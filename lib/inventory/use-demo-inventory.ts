@@ -1,28 +1,287 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import {
-  readInventoryState,
-  subscribeToInventory,
-  type InventoryState,
+import { useCallback, useEffect, useState } from "react"
+import type {
+  InventoryMovement,
+  InventoryState,
 } from "@/lib/inventory/demo-inventory"
+import { useOrdersOperator } from "@/components/orders/orders-operator-context"
+import { createClient } from "@/lib/supabase/client"
+
+type ProductRow = {
+  id: string
+  sku: string
+  name: string
+  description: string | null
+  category: string | null
+  gender: string | null
+  unit_price: number
+  barcode: string | null
+  image_url: string | null
+}
+
+type VariantRow = {
+  id: string
+  product_id: string
+  color: string
+  size: string
+  barcode: string | null
+  min_stock: number
+  max_stock: number | null
+}
+
+type StockRow = {
+  variant_id: string
+  warehouse_id: string
+  quantity: number
+}
+
+type WarehouseRow = { id: string; name: string }
+
+type MovementRow = {
+  id: string
+  variant_id: string
+  warehouse_id: string
+  movement_type: string
+  quantity: number
+  reference: string | null
+  notes: string | null
+  created_at: string
+}
+
+function throwOnError(error: { message: string } | null) {
+  if (error) throw new Error(error.message)
+}
+
+export async function loadSupabaseInventory(companyId: string): Promise<InventoryState> {
+  const supabase = createClient()
+  const [
+    { data: productData, error: productError },
+    { data: variantData, error: variantError },
+    { data: stockData, error: stockError },
+    { data: warehouseData, error: warehouseError },
+    { data: movementData, error: movementError },
+  ] = await Promise.all([
+    supabase.from("inventory_products").select("*").eq("company_id", companyId).order("name"),
+    supabase.from("inventory_variants").select("*").eq("company_id", companyId),
+    supabase.from("inventory_stock").select("*").eq("company_id", companyId),
+    supabase.from("inventory_warehouses").select("id, name").eq("company_id", companyId).eq("is_active", true),
+    supabase.from("inventory_movements").select("*").eq("company_id", companyId).order("created_at", { ascending: false }).limit(100),
+  ])
+  throwOnError(productError)
+  throwOnError(variantError)
+  throwOnError(stockError)
+  throwOnError(warehouseError)
+  throwOnError(movementError)
+
+  const products = (productData ?? []) as ProductRow[]
+  const variants = (variantData ?? []) as VariantRow[]
+  const stocks = (stockData ?? []) as StockRow[]
+  const warehouses = (warehouseData ?? []) as WarehouseRow[]
+  const movements = (movementData ?? []) as MovementRow[]
+  const productsById = new Map(products.map((product) => [product.id, product]))
+  const variantsById = new Map(variants.map((variant) => [variant.id, variant]))
+  const warehousesById = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse]))
+  const stockByVariant = new Map<string, Record<string, number>>()
+  for (const stock of stocks) {
+    const warehouseName = warehousesById.get(stock.warehouse_id)?.name
+    if (!warehouseName) continue
+    const values = stockByVariant.get(stock.variant_id) ?? {}
+    values[warehouseName] = Number(stock.quantity)
+    stockByVariant.set(stock.variant_id, values)
+  }
+
+  return {
+    products: products.map((product) => ({
+      id: product.id,
+      sku: product.sku,
+      name: product.name,
+      description: product.description ?? "",
+      category: product.category ?? "Sin categoría",
+      gender: product.gender ?? "Unisex",
+      price: Number(product.unit_price),
+      barcode: product.barcode ?? "",
+      imageUrl: product.image_url ?? "",
+      variants: variants.filter((variant) => variant.product_id === product.id).map((variant) => ({
+        id: variant.id,
+        color: variant.color,
+        size: variant.size,
+        barcode: variant.barcode ?? "",
+        stockByWarehouse: stockByVariant.get(variant.id) ?? {},
+        minStock: Number(variant.min_stock),
+        maxStock: Number(variant.max_stock ?? 100),
+      })),
+    })),
+    movements: movements.flatMap((movement): InventoryMovement[] => {
+      const variant = variantsById.get(movement.variant_id)
+      const product = variant ? productsById.get(variant.product_id) : null
+      const warehouse = warehousesById.get(movement.warehouse_id)
+      if (!variant || !product || !warehouse) return []
+      const isTransfer = movement.movement_type === "transferencia"
+      if (isTransfer && movement.notes?.includes("Transferencia desde ")) return []
+      return [{
+        id: movement.id,
+        date: movement.created_at,
+        type: isTransfer
+          ? "Transferencia"
+          : movement.movement_type === "entrada"
+            ? "Entrada"
+            : movement.movement_type === "ajuste"
+              ? "Ajuste"
+              : "Salida",
+        productName: product.name,
+        variantName: `${variant.color} · ${variant.size}`,
+        quantity: Number(movement.quantity),
+        warehouse: warehouse.name,
+        destination: isTransfer ? movement.notes?.split("Transferencia hacia ")[1] : undefined,
+        reference: movement.reference ?? "",
+        note: movement.notes ?? "",
+      }]
+    }),
+    deductedOrderIds: [],
+    warehouses,
+  }
+}
+
+export async function saveSupabaseProduct(
+  companyId: string,
+  product: {
+    id: string | null
+    sku: string
+    name: string
+    description: string
+    category: string
+    gender: string
+    price: number
+    barcode: string
+    imageUrl: string
+    variants: { color: string; size: string; barcode: string }[]
+    initialStock: number
+    minStock: number
+    maxStock: number
+  },
+) {
+  const supabase = createClient()
+  const { error } = await supabase.rpc("save_inventory_product", {
+    p_company_id: companyId,
+    p_product_id: product.id,
+    p_sku: product.sku,
+    p_name: product.name,
+    p_description: product.description,
+    p_category: product.category,
+    p_gender: product.gender,
+    p_unit_price: product.price,
+    p_barcode: product.barcode || null,
+    p_image_url: product.imageUrl || null,
+    p_variants: product.variants,
+    p_initial_stock: product.initialStock,
+    p_min_stock: product.minStock,
+    p_max_stock: product.maxStock,
+  })
+  throwOnError(error)
+}
+
+export async function saveSupabaseInventoryMovement(
+  companyId: string,
+  movement: {
+    type: string
+    variantId: string
+    quantity: number
+    warehouse: string
+    destination?: string
+    reference: string
+    note: string
+  },
+) {
+  const supabase = createClient()
+  const type = {
+    Entrada: "entrada",
+    Salida: "salida",
+    Transferencia: "transferencia",
+    Ajuste: "ajuste",
+  }[movement.type]
+  if (!type) throw new Error("El tipo de movimiento no es válido.")
+  const { error } = await supabase.rpc("apply_inventory_movement", {
+    p_company_id: companyId,
+    p_variant_id: movement.variantId,
+    p_type: type,
+    p_quantity: movement.quantity,
+    p_warehouse_name: movement.warehouse,
+    p_destination_name: movement.destination || null,
+    p_reference: movement.reference || null,
+    p_notes: movement.note || null,
+  })
+  throwOnError(error)
+}
 
 export function useDemoInventory() {
+  const { companyId } = useOrdersOperator()
   const [inventory, setInventory] = useState<InventoryState | null>(null)
+  const [loadedCompanyId, setLoadedCompanyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    function refresh() {
-      try {
-        setInventory(readInventoryState())
-        setError(null)
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "No se pudo cargar el inventario.")
-      }
+  const refresh = useCallback(async () => {
+    try {
+      setInventory(await loadSupabaseInventory(companyId))
+      setLoadedCompanyId(companyId)
+      setError(null)
+    } catch (caught) {
+      setLoadedCompanyId(companyId)
+      setInventory(null)
+      setError(caught instanceof Error ? caught.message : "No se pudo cargar el inventario.")
     }
-    refresh()
-    return subscribeToInventory(refresh)
-  }, [])
+  }, [companyId])
 
-  return { inventory, error }
+  useEffect(() => {
+    let cancelled = false
+    void loadSupabaseInventory(companyId).then((data) => {
+      if (cancelled) return
+      setInventory(data)
+      setLoadedCompanyId(companyId)
+      setError(null)
+    }).catch((caught: unknown) => {
+      if (cancelled) return
+      setLoadedCompanyId(companyId)
+      setInventory(null)
+      setError(caught instanceof Error ? caught.message : "No se pudo cargar el inventario.")
+    })
+    const supabase = createClient()
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const tables = [
+      "inventory_products",
+      "inventory_variants",
+      "inventory_stock",
+      "inventory_movements",
+      "inventory_warehouses",
+    ]
+    const channel = supabase.channel(`inventory-${companyId}`)
+    for (const table of tables) {
+      channel.on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table,
+        filter: `company_id=eq.${companyId}`,
+      }, () => {
+        if (timeout) clearTimeout(timeout)
+        timeout = setTimeout(() => void refresh(), 100)
+      })
+    }
+    channel.subscribe((status, subscriptionError) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setError(subscriptionError?.message ?? "No se pudo activar la sincronización en tiempo real del inventario.")
+      }
+    })
+    return () => {
+      cancelled = true
+      if (timeout) clearTimeout(timeout)
+      void supabase.removeChannel(channel)
+    }
+  }, [companyId, refresh])
+
+  const isCurrentCompany = loadedCompanyId === companyId
+  return {
+    inventory: isCurrentCompany ? inventory : null,
+    error: isCurrentCompany ? error : null,
+    refresh,
+  }
 }

@@ -54,7 +54,7 @@ export function GarmentTraceSheet({
 }: {
   order: DemoOrder
   onOpenChange: (open: boolean) => void
-  onSave: (order: DemoOrder, message: string) => boolean
+  onSave: (order: DemoOrder, message: string) => Promise<boolean>
   open: boolean
 }) {
   const operator = useOrdersOperator()
@@ -62,7 +62,7 @@ export function GarmentTraceSheet({
   const [bulkTarget, setBulkTarget] = useState<GarmentPhaseReached>(0)
   const allSelected = order.items.length > 0 && selectedRows.size === order.items.length
 
-  function updateSelectedRows(indices: number[], targetPhase: GarmentPhaseReached) {
+  async function updateSelectedRows(indices: number[], targetPhase: GarmentPhaseReached) {
     try {
       const updatedOrder = {
         ...order,
@@ -70,20 +70,20 @@ export function GarmentTraceSheet({
           ? updateGarmentProduction(item, targetPhase, operator)
           : item),
       }
-      return onSave(updatedOrder, `Trazabilidad actualizada para ${indices.length} prendas.`)
+      return await onSave(updatedOrder, `Trazabilidad actualizada para ${indices.length} prendas.`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo actualizar la fase de producción.")
       return false
     }
   }
 
-  function applyBulkPhase() {
+  async function applyBulkPhase() {
     if (selectedRows.size === 0) {
       toast.error("Selecciona al menos una prenda.")
       return
     }
     const selectedIndices = [...selectedRows]
-    if (updateSelectedRows(selectedIndices, bulkTarget)) setSelectedRows(new Set())
+    if (await updateSelectedRows(selectedIndices, bulkTarget)) setSelectedRows(new Set())
   }
 
   function toggleRow(index: number, checked: boolean | "indeterminate") {
@@ -149,7 +149,7 @@ export function GarmentTraceSheet({
             <Button
               className="w-full sm:w-auto"
               disabled={selectedRows.size === 0}
-              onClick={applyBulkPhase}
+              onClick={() => void applyBulkPhase()}
               type="button"
             >
               <CheckCheckIcon data-icon="inline-start" />
@@ -209,7 +209,7 @@ export function GarmentTraceSheet({
                           onValueChange={(value) => {
                             const nextPhase = Number(value)
                             if (!isGarmentPhaseReached(nextPhase)) return
-                            updateSelectedRows([index], nextPhase)
+                            void updateSelectedRows([index], nextPhase)
                           }}
                         >
                           <SelectTrigger aria-label={`Fase actual de prenda ${index + 1}`} className="w-full">

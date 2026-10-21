@@ -53,9 +53,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { demoOrders, type DemoOrder } from "@/lib/orders/demo-data"
-import { readStoredOrders, saveStoredOrders } from "@/lib/orders/demo-storage"
+import type { DemoOrder } from "@/lib/orders/demo-data"
 import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
+import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+import { createSupabaseOrder } from "@/lib/orders/supabase-orders"
+import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 const priceAdjustmentSchema = z.object({
   type: z.enum(["surcharge", "discount"]),
@@ -80,6 +82,7 @@ const garmentItemSchema = z.object({
 
 const orderSchema = z.object({
   customer: z.string().trim().min(2, "Ingresa el nombre del cliente."),
+  note: z.string(),
   entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
   dueDate: z.string().min(1, "Selecciona la fecha pactada."),
   salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
@@ -240,10 +243,8 @@ function defaultItem(garment: string, fit: string): FormItem {
   }
 }
 
-function createOrderId(existingIds: Set<string>) {
-  let orderNumber = Date.now() % 100_000
-  while (existingIds.has(`FS-${orderNumber}`)) orderNumber += 1
-  return `FS-${orderNumber}`
+function createOrderId() {
+  return `FS-${Date.now()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
 }
 
 function today() {
@@ -259,7 +260,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const [bulkGarment, setBulkGarment] = useState("Camiseta")
   const [bulkFit, setBulkFit] = useState("Hombre")
   const [bulkPrice, setBulkPrice] = useState("")
+  const { companyId } = useOrdersOperator()
   const { inventory, error: inventoryError } = useDemoInventory()
+  const { refresh: refreshOrders } = useDemoOrders()
   const garmentTypes = [...new Set([
     ...defaultGarmentTypes,
     ...(inventory?.products.map((product) => product.name) ?? []),
@@ -276,6 +279,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     resolver: zodResolver(orderSchema),
     defaultValues: {
       customer: "",
+      note: "",
       entryDate: today(),
       dueDate: "",
       salesperson: "",
@@ -313,7 +317,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       form.setValue("paid", totals.grandTotal, { shouldDirty: true })
     }
     const fields = step === 0
-      ? ["customer", "entryDate", "dueDate", "salesperson"] as const
+      ? ["customer", "note", "entryDate", "dueDate", "salesperson"] as const
       : step === 1
         ? ["garments", "items"] as const
         : ["items", "paid", "paymentStatus", "paymentMethod"] as const
@@ -417,7 +421,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }
   }
 
-  function submitOrder(values: OrderFormValues) {
+  async function submitOrder(values: OrderFormValues) {
     try {
       if (savedOrder) {
         toast.info(`El pedido ${savedOrder.id} ya está guardado.`)
@@ -430,12 +434,12 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
         return
       }
 
-      const storedOrders = readStoredOrders()
-      const allIds = new Set([...storedOrders, ...demoOrders].map((order) => order.id))
       const quantity = values.garments.reduce((total, garment) => total + garment.quantity, 0)
       const orderTotals = calculateTotals(values.items)
       const order: DemoOrder = {
-        id: createOrderId(allIds),
+        id: createOrderId(),
+        companyId,
+        entryDate: values.entryDate,
         customer: values.customer,
         item: values.garments[0]?.type ?? "Prenda personalizada",
         quantity,
@@ -446,7 +450,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
         total: orderTotals.grandTotal,
         paid: values.paid,
         salesperson: values.salesperson,
-        note: "Pedido creado desde el flujo de demostración.",
+        note: values.note,
         items: values.items.map((item) => ({
           garment: item.garment,
           fit: item.fit,
@@ -473,7 +477,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
           operator: values.salesperson,
         }],
       }
-      saveStoredOrders([order, ...storedOrders])
+      if (!inventory) throw new Error("El inventario todavía se está cargando. Inténtalo de nuevo.")
+      await createSupabaseOrder(companyId, order, inventory)
+      await refreshOrders()
       setSavedOrder(order)
       toast.success(`Pedido ${order.id} guardado. Ya puedes compartir la cotización.`)
     } catch (error) {
@@ -667,6 +673,10 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   Cliente
                   <Input autoComplete="organization" placeholder="Nombre del cliente o equipo" {...form.register("customer")} />
                   <FieldError errors={[form.formState.errors.customer]} />
+                </label>
+                <label className="space-y-2 text-sm font-medium sm:col-span-2">
+                  Nota del pedido
+                  <Input maxLength={1000} placeholder="Indicaciones generales o detalles importantes" {...form.register("note")} />
                 </label>
                 <label className="space-y-2 text-sm font-medium">
                   Fecha de ingreso

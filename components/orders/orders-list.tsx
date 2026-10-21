@@ -61,12 +61,9 @@ import {
   type OrderStatus,
   type DemoOrder,
 } from "@/lib/orders/demo-data"
-import {
-  deleteOrderPermanently,
-  moveOrderToTrash,
-  restoreOrderFromTrash,
-} from "@/lib/orders/demo-storage"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+import { setSupabaseOrderDeleted } from "@/lib/orders/supabase-orders"
+import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 const statusTone: Record<OrderStatus, string> = {
   Diseño: "border-sky-200 bg-sky-50 text-sky-800",
@@ -107,7 +104,8 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
 
 export function OrdersList() {
   const router = useRouter()
-  const { orders, trashedOrders, error } = useDemoOrders()
+  const { orders, trashedOrders, error, loading, refresh } = useDemoOrders()
+  const { companyId } = useOrdersOperator()
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("Todos")
   const [paymentFilter, setPaymentFilter] = useState("Todos")
@@ -127,9 +125,10 @@ export function OrdersList() {
     [trashedOrders, paymentFilter, query, statusFilter],
   )
 
-  function moveOrder(order: DemoOrder) {
+  async function moveOrder(order: DemoOrder) {
     try {
-      moveOrderToTrash(order.id)
+      await setSupabaseOrderDeleted(companyId, order.id, "trash")
+      await refresh()
       setOrderToTrash(null)
       toast.success(`El pedido ${order.id} se movió a la papelera.`)
     } catch (error) {
@@ -137,20 +136,22 @@ export function OrdersList() {
     }
   }
 
-  function restoreOrder(order: DemoOrder) {
+  async function restoreOrder(order: DemoOrder) {
     try {
-      restoreOrderFromTrash(order.id)
+      await setSupabaseOrderDeleted(companyId, order.id, "restore")
+      await refresh()
       toast.success(`El pedido ${order.id} se restauró.`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo restaurar el pedido.")
     }
   }
 
-  function deleteOrder(order: DemoOrder) {
+  async function archiveOrder(order: DemoOrder) {
     try {
-      deleteOrderPermanently(order.id)
+      await setSupabaseOrderDeleted(companyId, order.id, "archive")
+      await refresh()
       setOrderToDelete(null)
-      toast.success(`El pedido ${order.id} se eliminó definitivamente.`)
+      toast.success(`El pedido ${order.id} se archivó y se conservó su historial.`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo eliminar el pedido.")
     }
@@ -166,7 +167,7 @@ export function OrdersList() {
             Consulta el estado de cada pedido sin perder de vista lo importante.
           </p>
         </div>
-        <Button render={<Link href="/dashboard/orders/new" />}>
+        <Button nativeButton={false} render={<Link href="/dashboard/orders/new" />}>
           <PlusIcon data-icon="inline-start" />
           Nuevo pedido
         </Button>
@@ -176,7 +177,7 @@ export function OrdersList() {
         className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
         role="note"
       >
-        Datos de demostración: los cambios se guardan en este navegador y todavía no se sincronizan con Supabase.
+        Los pedidos y sus cambios se sincronizan con Supabase en la empresa activa.
       </div>
 
       <Tabs defaultValue="activos" className="gap-4">
@@ -224,6 +225,7 @@ export function OrdersList() {
         </div>
 
         <TabsContent value="activos">
+          {loading && <p className="pb-3 text-sm text-muted-foreground">Sincronizando pedidos…</p>}
           <Card className="gap-0 py-0">
             <CardHeader className="border-b py-4">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -317,13 +319,14 @@ export function OrdersList() {
         </TabsContent>
 
         <TabsContent value="papelera">
+          {loading && <p className="pb-3 text-sm text-muted-foreground">Sincronizando pedidos…</p>}
           <Card className="gap-0 py-0">
             <CardHeader className="border-b py-4">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {`${filteredTrashedOrders.length} pedidos en la papelera`}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Los pedidos se conservan aquí hasta que los restaures.
+                Los pedidos eliminados se conservan aquí hasta restaurarlos o archivarlos.
               </p>
             </CardHeader>
             <Table>
@@ -348,21 +351,25 @@ export function OrdersList() {
                     <TableCell>
                       <div className="flex justify-end gap-2">
                         <Button
-                          onClick={() => restoreOrder(order)}
+                          onClick={() => void restoreOrder(order)}
                           size="sm"
                           variant="outline"
                         >
                           <RotateCcwIcon data-icon="inline-start" />
                           Restaurar
                         </Button>
-                        <Button
-                          aria-label={`Eliminar definitivamente el pedido ${order.id}`}
-                          onClick={() => setOrderToDelete(order)}
-                          size="icon-sm"
-                          variant="destructive"
-                        >
-                          <Trash2Icon />
-                        </Button>
+                        {order.archivedAt ? (
+                          <Badge variant="outline">Archivado</Badge>
+                        ) : (
+                          <Button
+                            aria-label={`Archivar el pedido ${order.id}`}
+                            onClick={() => setOrderToDelete(order)}
+                            size="icon-sm"
+                            variant="destructive"
+                          >
+                            <Trash2Icon />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -398,7 +405,7 @@ export function OrdersList() {
             </Button>
             <Button
               onClick={() => {
-                if (orderToTrash) moveOrder(orderToTrash)
+                if (orderToTrash) void moveOrder(orderToTrash)
               }}
               variant="destructive"
             >
@@ -414,11 +421,11 @@ export function OrdersList() {
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Eliminar pedido definitivamente</DialogTitle>
+            <DialogTitle>Archivar pedido</DialogTitle>
             <DialogDescription>
               {orderToDelete
-                ? `El pedido ${orderToDelete.id} se borrará de forma permanente y no podrá restaurarse.`
-                : "El pedido se borrará de forma permanente y no podrá restaurarse."}
+                ? `El pedido ${orderToDelete.id} se marcará como archivado. Se conservará su historial y no podrá restaurarse desde la aplicación.`
+                : "El pedido se archivará y se conservará su historial."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -427,12 +434,12 @@ export function OrdersList() {
             </Button>
             <Button
               onClick={() => {
-                if (orderToDelete) deleteOrder(orderToDelete)
+                if (orderToDelete) void archiveOrder(orderToDelete)
               }}
               variant="destructive"
             >
               <Trash2Icon data-icon="inline-start" />
-              Eliminar definitivamente
+              Archivar pedido
             </Button>
           </DialogFooter>
         </DialogContent>

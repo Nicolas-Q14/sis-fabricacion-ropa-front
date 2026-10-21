@@ -44,6 +44,7 @@ export type InventoryState = {
   products: InventoryProduct[]
   movements: InventoryMovement[]
   deductedOrderIds: string[]
+  warehouses?: { id: string; name: string }[]
 }
 
 export type InventoryMovementInput = {
