@@ -148,7 +148,7 @@ export function ProfileEditor({
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-5 bg-muted/40 p-4 md:justify-center md:p-8">
-      <Button className="w-fit" render={<Link href="/dashboard" />} variant="ghost">
+      <Button className="w-fit" nativeButton={false} render={<Link href="/dashboard" />} variant="ghost">
         <ArrowLeftIcon />
         Volver al dashboard
       </Button>

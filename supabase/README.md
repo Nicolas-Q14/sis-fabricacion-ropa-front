@@ -155,3 +155,27 @@ Las migraciones no importan los datos ya guardados en `localStorage`. Se
 conservan en el navegador y deben transformarse y cargarse por separado si se
 quieren mantener; antes de crear pedidos en Supabase, configura el catálogo, la
 bodega principal, las variantes y las existencias.
+
+La migración `migrations/20261021150000_inventory_catalog_management.sql`
+agrega el RPC seguro para eliminar productos. Un producto solo puede borrarse
+si ninguna variante está ligada a pedidos o movimientos, para conservar la
+trazabilidad.
+
+La migración `migrations/20261021160000_inventory_producer_reference.sql`
+normaliza las referencias de movimientos a `Frenesi sport`: corrige las
+referencias existentes y fuerza ese texto en cualquier movimiento nuevo o
+actualizado, incluidos los descuentos asociados a pedidos.
+
+Si necesitas vaciar el inventario actual, ejecuta manualmente
+`manual/reset_single_company_inventory.sql` desde el SQL Editor después de
+hacer una copia de seguridad. No es una migración automática: elimina el
+catálogo, las variantes, las existencias, las bodegas y todos los movimientos
+del espacio único. Conserva pedidos e historial de producción, pero desvincula
+las prendas de sus variantes y bodegas. Los pedidos activos deberán volver a
+asociarse a variantes antes de completar la producción y descontar inventario.
+
+En la interfaz, crear y editar productos se hace desde formularios dedicados.
+Las variantes nuevas y sus existencias iniciales se guardan al confirmar el
+producto. El inventario muestra alertas de stock bajo y el dashboard comparte
+esas alertas junto con los movimientos recientes. La interfaz no ofrece el
+formulario manual de movimientos.

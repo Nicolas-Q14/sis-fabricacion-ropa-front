@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import type { CSSProperties } from "react"
 import data from "@/app/dashboard/data.json"
 import { AppSidebar } from "@/components/app-sidebar"
+import { InventorySummary } from "@/components/inventory/inventory-summary"
 import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -57,14 +58,16 @@ export function DashboardClient({
   email,
   fullName,
   avatarUrl,
+  operatorId,
   role,
 }: {
   companies: CompanyOption[]
-  companyId: string | null
+  companyId: string
   companyName: string | null
   email: string
   fullName: string
   avatarUrl: string | null
+  operatorId: string
   role: AppRole
 }) {
   const displayName = fullName.trim() || email || "Tu cuenta"
@@ -251,20 +254,11 @@ export function DashboardClient({
             </section>
 
             <section className="scroll-mt-6" id="inventario">
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle>Control de inventario</CardTitle>
-                  <CardDescription>Productos, variantes, existencias y movimientos</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Consulta el stock disponible, administra variantes y registra entradas, salidas, transferencias o ajustes.
-                  </p>
-                  <a className="text-sm font-medium text-primary hover:underline" href="/dashboard/inventory">
-                    Abrir módulo de inventario →
-                  </a>
-                </CardContent>
-              </Card>
+              <InventorySummary
+                companyId={companyId}
+                operatorId={operatorId}
+                operatorName={displayName}
+              />
             </section>
           </div>
         </main>

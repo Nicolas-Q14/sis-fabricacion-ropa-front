@@ -118,7 +118,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <p className="text-sm text-muted-foreground">
           El pedido no existe en la empresa activa o no tienes permisos para consultarlo.
         </p>
-        <Button render={<Link href="/dashboard/orders" />} variant="outline">
+        <Button nativeButton={false} render={<Link href="/dashboard/orders" />} variant="outline">
           Volver a pedidos
         </Button>
       </div>

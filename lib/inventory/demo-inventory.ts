@@ -44,6 +44,7 @@ export type InventoryState = {
   products: InventoryProduct[]
   movements: InventoryMovement[]
   deductedOrderIds: string[]
+  reservedByVariant?: Record<string, number>
   warehouses?: { id: string; name: string }[]
 }
 

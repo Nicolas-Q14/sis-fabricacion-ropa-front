@@ -49,6 +49,10 @@ type MovementRow = {
   created_at: string
 }
 
+type ReservationItemRow = {
+  inventory_variant_id: string | null
+}
+
 function throwOnError(error: { message: string } | null) {
   if (error) throw new Error(error.message)
 }
@@ -61,24 +65,49 @@ export async function loadSupabaseInventory(companyId: string): Promise<Inventor
     { data: stockData, error: stockError },
     { data: warehouseData, error: warehouseError },
     { data: movementData, error: movementError },
+    { data: activeOrderData, error: activeOrderError },
   ] = await Promise.all([
     supabase.from("inventory_products").select("*").eq("company_id", companyId).order("name"),
     supabase.from("inventory_variants").select("*").eq("company_id", companyId),
     supabase.from("inventory_stock").select("*").eq("company_id", companyId),
     supabase.from("inventory_warehouses").select("id, name").eq("company_id", companyId).eq("is_active", true),
     supabase.from("inventory_movements").select("*").eq("company_id", companyId).order("created_at", { ascending: false }).limit(100),
+    supabase.from("orders").select("id")
+      .eq("company_id", companyId)
+      .is("deleted_at", null)
+      .is("archived_at", null)
+      .is("stock_deducted_at", null),
   ])
   throwOnError(productError)
   throwOnError(variantError)
   throwOnError(stockError)
   throwOnError(warehouseError)
   throwOnError(movementError)
+  throwOnError(activeOrderError)
 
   const products = (productData ?? []) as ProductRow[]
   const variants = (variantData ?? []) as VariantRow[]
   const stocks = (stockData ?? []) as StockRow[]
   const warehouses = (warehouseData ?? []) as WarehouseRow[]
   const movements = (movementData ?? []) as MovementRow[]
+  const activeOrderIds = (activeOrderData ?? []).map((order) => order.id)
+  let reservationItems: ReservationItemRow[] = []
+  if (activeOrderIds.length > 0) {
+    const { data, error: reservationError } = await supabase
+      .from("order_items")
+      .select("inventory_variant_id")
+      .eq("company_id", companyId)
+      .in("order_id", activeOrderIds)
+      .not("inventory_variant_id", "is", null)
+    throwOnError(reservationError)
+    reservationItems = (data ?? []) as ReservationItemRow[]
+  }
+  const reservedByVariant: Record<string, number> = {}
+  for (const item of reservationItems) {
+    if (!item.inventory_variant_id) continue
+    reservedByVariant[item.inventory_variant_id] =
+      (reservedByVariant[item.inventory_variant_id] ?? 0) + 1
+  }
   const productsById = new Map(products.map((product) => [product.id, product]))
   const variantsById = new Map(variants.map((variant) => [variant.id, variant]))
   const warehousesById = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse]))
@@ -139,6 +168,7 @@ export async function loadSupabaseInventory(companyId: string): Promise<Inventor
       }]
     }),
     deductedOrderIds: [],
+    reservedByVariant,
     warehouses,
   }
 }
@@ -177,6 +207,15 @@ export async function saveSupabaseProduct(
     p_initial_stock: product.initialStock,
     p_min_stock: product.minStock,
     p_max_stock: product.maxStock,
+  })
+  throwOnError(error)
+}
+
+export async function deleteSupabaseProduct(companyId: string, productId: string) {
+  const supabase = createClient()
+  const { error } = await supabase.rpc("delete_inventory_product", {
+    p_company_id: companyId,
+    p_product_id: productId,
   })
   throwOnError(error)
 }
@@ -253,6 +292,8 @@ export function useDemoInventory() {
       "inventory_stock",
       "inventory_movements",
       "inventory_warehouses",
+      "orders",
+      "order_items",
     ]
     const channel = supabase.channel(`inventory-${companyId}`)
     for (const table of tables) {

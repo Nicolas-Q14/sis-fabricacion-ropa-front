@@ -1301,6 +1301,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       <div className="grid gap-2 sm:grid-cols-2">
                         <Button
                           className="w-full"
+                          nativeButton={false}
                           render={<Link href="/dashboard/orders" />}
                           variant="outline"
                         >
@@ -1308,6 +1309,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                         </Button>
                         <Button
                           className="w-full"
+                          nativeButton={false}
                           render={<Link href="/dashboard" />}
                           variant="outline"
                         >
