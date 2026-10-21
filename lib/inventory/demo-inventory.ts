@@ -2,7 +2,7 @@ import { getOrderStatus, type DemoOrder } from "@/lib/orders/demo-data"
 
 export const MAIN_WAREHOUSE = "Bodega principal"
 
-export type InventoryMovementType = "Entrada" | "Salida" | "Transferencia" | "Ajuste"
+export type InventoryMovementType = "Entrada" | "Salida" | "Transferencia" | "Ajuste" | "Reserva"
 
 export type InventoryVariant = {
   id: string
@@ -20,6 +20,8 @@ export type InventoryProduct = {
   name: string
   description: string
   category: string
+  subcategory: string
+  catalogYear: number
   gender: string
   price: number
   barcode: string
@@ -38,6 +40,7 @@ export type InventoryMovement = {
   destination?: string
   reference: string
   note: string
+  userId?: string | null
 }
 
 export type InventoryState = {
@@ -45,6 +48,7 @@ export type InventoryState = {
   movements: InventoryMovement[]
   deductedOrderIds: string[]
   reservedByVariant?: Record<string, number>
+  reservedByVariantWarehouse?: Record<string, Record<string, number>>
   warehouses?: { id: string; name: string }[]
 }
 
@@ -62,11 +66,11 @@ const storageKey = "frenesi-demo-inventory"
 const sizes = ["4", "6", "8", "10", "12", "14", "XS", "S", "M", "L", "XL", "XXL"]
 const colors = ["Azul marino", "Blanco", "Negro"]
 const initialCatalog = [
-  { sku: "UNI-CAM", name: "Camiseta", description: "Camiseta deportiva personalizable", category: "Uniformes", gender: "Unisex", price: 60000 },
-  { sku: "UNI-PAN", name: "Pantaloneta", description: "Pantaloneta deportiva", category: "Uniformes", gender: "Unisex", price: 40000 },
-  { sku: "UNI-SUD", name: "Sudadera", description: "Sudadera institucional", category: "Uniformes", gender: "Unisex", price: 75000 },
-  { sku: "UNI-CHA", name: "Chaqueta", description: "Chaqueta deportiva", category: "Uniformes", gender: "Unisex", price: 95000 },
-  { sku: "UNI-MED", name: "Medias", description: "Medias deportivas", category: "Accesorios", gender: "Unisex", price: 18000 },
+  { sku: "FS-2026-TEX-CAM-001", name: "Camiseta", description: "Camiseta deportiva personalizable", category: "Textiles", subcategory: "camisetas", catalogYear: 2026, gender: "Unisex", price: 60000 },
+  { sku: "FS-2026-TEX-PAN-001", name: "Pantaloneta", description: "Pantaloneta deportiva", category: "Textiles", subcategory: "pantalonetas", catalogYear: 2026, gender: "Unisex", price: 40000 },
+  { sku: "FS-2026-TEX-SUD-001", name: "Sudadera", description: "Sudadera institucional", category: "Textiles", subcategory: "sudaderas", catalogYear: 2026, gender: "Unisex", price: 75000 },
+  { sku: "FS-2026-TEX-CHA-001", name: "Chaqueta", description: "Chaqueta deportiva", category: "Textiles", subcategory: "chaquetas", catalogYear: 2026, gender: "Unisex", price: 95000 },
+  { sku: "FS-2026-TEX-MED-001", name: "Medias", description: "Medias deportivas", category: "Textiles", subcategory: "medias", catalogYear: 2026, gender: "Unisex", price: 18000 },
 ]
 
 function makeInitialState(): InventoryState {
@@ -100,7 +104,15 @@ export function readInventoryState(): InventoryState {
   if (!isInventoryState(value)) {
     throw new Error("Los datos de inventario guardados tienen un formato inválido.")
   }
-  return value
+  return {
+    ...value,
+    products: value.products.map((product) => ({
+      ...product,
+      category: product.category === "Promocionales" ? "Promocionales" : "Textiles",
+      subcategory: product.subcategory ?? inferSubcategory(product.name),
+      catalogYear: product.catalogYear ?? 2026,
+    })),
+  }
 }
 
 export function saveInventoryState(state: InventoryState) {
@@ -296,12 +308,26 @@ function isInventoryProduct(value: unknown): value is InventoryProduct {
     && typeof value.name === "string"
     && typeof value.description === "string"
     && typeof value.category === "string"
+    && (value.subcategory === undefined || typeof value.subcategory === "string")
+    && (value.catalogYear === undefined || Number.isInteger(value.catalogYear))
     && typeof value.gender === "string"
     && typeof value.price === "number"
     && typeof value.barcode === "string"
     && typeof value.imageUrl === "string"
     && Array.isArray(value.variants)
     && value.variants.every(isInventoryVariant)
+}
+
+function inferSubcategory(name: string) {
+  const normalizedName = name.toLocaleLowerCase()
+  if (normalizedName.includes("camiseta")) return "camisetas"
+  if (normalizedName.includes("pantaloneta")) return "pantalonetas"
+  if (normalizedName.includes("sudadera")) return "sudaderas"
+  if (normalizedName.includes("chaqueta")) return "chaquetas"
+  if (normalizedName.includes("media")) return "medias"
+  if (normalizedName.includes("termo") || normalizedName.includes("mug")) return "mugs_y_termos"
+  if (normalizedName.includes("toalla")) return "toallas_microfibra"
+  return "otros"
 }
 
 function isInventoryVariant(value: unknown): value is InventoryVariant {

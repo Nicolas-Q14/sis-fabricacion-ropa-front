@@ -166,16 +166,55 @@ normaliza las referencias de movimientos a `Frenesi sport`: corrige las
 referencias existentes y fuerza ese texto en cualquier movimiento nuevo o
 actualizado, incluidos los descuentos asociados a pedidos.
 
+La migración `migrations/20261021170000_inventory_catalog_taxonomy.sql`
+organiza el catálogo por año, familia y subcategoría. El catálogo incluye
+Textiles y Promocionales con sus categorías; los SKU nuevos se generan como
+`FS-{año}-{familia}-{tipo}-{consecutivo}`, por ejemplo
+`FS-2026-TEX-CAM-001`. Los productos existentes conservan sus SKU y se asignan
+al catálogo 2026; su familia y subcategoría se infieren a partir del nombre
+cuando es posible.
+
 Si necesitas vaciar el inventario actual, ejecuta manualmente
 `manual/reset_single_company_inventory.sql` desde el SQL Editor después de
-hacer una copia de seguridad. No es una migración automática: elimina el
-catálogo, las variantes, las existencias, las bodegas y todos los movimientos
-del espacio único. Conserva pedidos e historial de producción, pero desvincula
-las prendas de sus variantes y bodegas. Los pedidos activos deberán volver a
-asociarse a variantes antes de completar la producción y descontar inventario.
+hacer una copia de seguridad. No es una migración automática ni elimina tablas:
+borra los productos, variantes, existencias y movimientos del espacio único,
+pero conserva las bodegas, pedidos e historial de producción. Las prendas de
+pedidos quedan desvinculadas de variantes y bodegas; los pedidos activos deberán
+asociarse a nuevas variantes antes de completar la producción y descontar stock.
+Al final, el script consulta los conteos restantes para verificar la limpieza.
+
+La migración `migrations/20261021180000_inventory_batch_stock_adjustment.sql`
+agrega el RPC para ajustes en lote. La migración
+`migrations/20261021190000_inventory_reference_stock_batch.sql` agrega
+`apply_inventory_reference_stock_batch`, que permite registrar una entrada o
+salida en varias tallas y colores y crear variantes que aún no existen desde el
+detalle de la referencia. Las nuevas variantes heredan los mínimos y máximos
+de una variante existente de la referencia (o usan cero/sin máximo si aún no
+hay variantes). La operación completa es transaccional y cada salida valida
+las reservas activas; si una variante no tiene stock suficiente, se revierte el
+lote. Aplica ambas migraciones en orden para usar **Agregar unidades por
+talla/color**.
+
+Para cargar muestras de inicio, ejecuta
+`manual/seed_inventory_examples_2025_2026.sql` después de la migración de
+taxonomía. Crea un ejemplo por cada subcategoría textil y promocional en los
+catálogos 2025 y 2026, con variantes S/M/L y stock inicial de demostración.
+El archivo es idempotente por SKU. La galería aún no tiene una tabla propia en
+Supabase; `public/inventario/Frenesi Sport/galeria/trabajos_entregados/muestra-demo.svg`
+es solamente una ilustración de muestra y no representa un trabajo real.
 
 En la interfaz, crear y editar productos se hace desde formularios dedicados.
 Las variantes nuevas y sus existencias iniciales se guardan al confirmar el
 producto. El inventario muestra alertas de stock bajo y el dashboard comparte
-esas alertas junto con los movimientos recientes. La interfaz no ofrece el
-formulario manual de movimientos.
+esas alertas junto con los movimientos recientes. La interfaz no ofrece el formulario general de movimientos. Desde el detalle
+de una referencia se pueden registrar entradas o salidas para varias tallas y
+colores en un solo lote; también se conserva el ajuste individual por variante.
+Las operaciones validan reservas activas y guardan el usuario autenticado en
+`created_by_user_id`. El kardex muestra movimientos recientes y reservas
+activas derivadas de prendas de pedidos aún no entregados.
+
+El catálogo dispone de búsqueda y filtros por año, familia, subcategoría y
+bodega. El SKU se genera con el formato
+`FS-{año}-{familia}-{tipo}-{consecutivo}`. Las lecturas del módulo se realizan
+desde Supabase con RLS; `loadSupabaseInventory` carga catálogo, variantes,
+stock, movimientos y reservas, y el hook del inventario refresca por Realtime.
