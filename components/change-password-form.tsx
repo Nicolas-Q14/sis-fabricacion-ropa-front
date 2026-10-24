@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import { Eye, EyeOff } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,6 +12,8 @@ export function ChangePasswordForm() {
   const router = useRouter()
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -65,26 +68,56 @@ export function ChangePasswordForm() {
           <form className="grid gap-4" onSubmit={handleSubmit}>
             <label className="grid gap-2 text-sm font-medium" htmlFor="new-password">
               Nueva contraseña
-              <Input
-                autoComplete="new-password"
-                id="new-password"
-                minLength={12}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                type="password"
-                value={password}
-              />
+              <div className="relative">
+                <Input
+                  autoComplete="new-password"
+                  className="pr-10"
+                  id="new-password"
+                  minLength={12}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                />
+                <Button
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  className="absolute top-1/2 right-1 size-7 -translate-y-1/2 text-muted-foreground"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {showPassword
+                    ? <EyeOff aria-hidden="true" />
+                    : <Eye aria-hidden="true" />}
+                </Button>
+              </div>
             </label>
             <label className="grid gap-2 text-sm font-medium" htmlFor="confirm-password">
               Confirmar contraseña
-              <Input
-                autoComplete="new-password"
-                id="confirm-password"
-                onChange={(event) => setConfirmation(event.target.value)}
-                required
-                type="password"
-                value={confirmation}
-              />
+              <div className="relative">
+                <Input
+                  autoComplete="new-password"
+                  className="pr-10"
+                  id="confirm-password"
+                  onChange={(event) => setConfirmation(event.target.value)}
+                  required
+                  type={showConfirmation ? 'text' : 'password'}
+                  value={confirmation}
+                />
+                <Button
+                  aria-label={showConfirmation ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  className="absolute top-1/2 right-1 size-7 -translate-y-1/2 text-muted-foreground"
+                  onClick={() => setShowConfirmation((visible) => !visible)}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {showConfirmation
+                    ? <EyeOff aria-hidden="true" />
+                    : <Eye aria-hidden="true" />}
+                </Button>
+              </div>
             </label>
             {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
             <Button disabled={isSubmitting} type="submit">

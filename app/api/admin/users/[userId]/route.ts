@@ -140,3 +140,88 @@ export async function PATCH(request: Request, { params }: UpdateUserRouteProps) 
     },
   })
 }
+
+export async function DELETE(_request: Request, { params }: UpdateUserRouteProps) {
+  const supabase = await createClient()
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    return NextResponse.json({ error: 'Debes iniciar sesión.' }, { status: 401 })
+  }
+
+  if (user.app_metadata?.must_change_password === true) {
+    return NextResponse.json(
+      { error: 'Debes cambiar tu contraseña antes de continuar.' },
+      { status: 403 },
+    )
+  }
+
+  const { data: superadmin, error: roleError } = await supabase
+    .from('user_roles')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('role', 'superadmin')
+    .is('company_id', null)
+    .maybeSingle()
+
+  if (roleError) {
+    console.error('No fue posible verificar el rol del usuario solicitante.', roleError)
+    return NextResponse.json({ error: 'No se pudieron verificar tus permisos.' }, { status: 500 })
+  }
+
+  if (!superadmin) {
+    return NextResponse.json({ error: 'No tienes permiso para eliminar usuarios.' }, { status: 403 })
+  }
+
+  const { userId } = await params
+  const parsedUserId = z.uuid().safeParse(userId)
+  if (!parsedUserId.success) {
+    return NextResponse.json({ error: 'El identificador del usuario no es válido.' }, { status: 400 })
+  }
+
+  if (parsedUserId.data === user.id) {
+    return NextResponse.json({ error: 'No puedes eliminar tu propia cuenta.' }, { status: 400 })
+  }
+
+  const admin = createAdminClient()
+  const { data: targetRoles, error: targetRolesError } = await admin
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', parsedUserId.data)
+
+  if (targetRolesError) {
+    console.error('No se pudieron verificar los perfiles del usuario que se quiere eliminar.', targetRolesError)
+    return NextResponse.json({ error: 'No se pudieron verificar los perfiles del usuario.' }, { status: 500 })
+  }
+
+  if (targetRoles?.some((targetRole) => targetRole.role === 'superadmin')) {
+    return NextResponse.json({ error: 'No se puede eliminar una cuenta de superadmin.' }, { status: 403 })
+  }
+
+  if (!targetRoles?.some((targetRole) =>
+    targetRole.role === 'admin' || targetRole.role === 'gerente_produccion',
+  )) {
+    return NextResponse.json({ error: 'No se encontró un perfil de empleado para eliminar.' }, { status: 404 })
+  }
+
+  const { data: targetUser, error: targetUserError } = await admin.auth.admin.getUserById(parsedUserId.data)
+  if (targetUserError || !targetUser.user) {
+    console.error('No se pudo cargar la cuenta del usuario que se quiere eliminar.', targetUserError)
+    return NextResponse.json({ error: 'No se encontró la cuenta del usuario.' }, { status: 404 })
+  }
+
+  if (targetUser.user.app_metadata?.is_active !== false) {
+    return NextResponse.json(
+      { error: 'Desactiva el usuario antes de eliminarlo.' },
+      { status: 409 },
+    )
+  }
+
+  const { error: deleteError } = await admin.auth.admin.deleteUser(parsedUserId.data)
+  if (deleteError) {
+    console.error('No se pudo eliminar la cuenta del usuario.', deleteError)
+    return NextResponse.json({ error: 'No se pudo eliminar la cuenta del usuario.' }, { status: 500 })
+  }
+
+  return NextResponse.json({ userId: parsedUserId.data })
+}

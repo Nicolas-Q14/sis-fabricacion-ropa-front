@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react"
 import type { CSSProperties } from "react"
-import data from "@/app/dashboard/data.json"
 import { AppSidebar } from "@/components/app-sidebar"
 import { InventorySummary } from "@/components/inventory/inventory-summary"
 import { SiteHeader } from "@/components/site-header"
@@ -36,20 +35,11 @@ import {
 } from "@/components/ui/sidebar"
 import { appRoleLabels, type AppRole, type CompanyOption } from "@/lib/auth/roles"
 import { SearchIcon } from "lucide-react"
-
-const metrics = [
-  { label: "Pedidos activos", value: "24", detail: "12% vs. mes anterior" },
-  { label: "En producción", value: "18", detail: "6 para hoy · en 4 etapas" },
-  { label: "Por entregar", value: "7", detail: "2 urgentes · próximos 3 días" },
-  { label: "Insumos por agotarse", value: "3", detail: "Revisar inventario" },
-]
-
-const productionStages = [
-  { name: "Corte", count: "12 órdenes", progress: 76 },
-  { name: "Sublimación", count: "8 órdenes", progress: 58 },
-  { name: "Confección", count: "15 órdenes", progress: 84 },
-  { name: "Terminados", count: "6 órdenes", progress: 42 },
-]
+import { OrdersOperatorProvider } from "@/components/orders/orders-operator-context"
+import { getLowStockVariants } from "@/lib/inventory/demo-inventory"
+import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
+import { getGarmentPhase, garmentProductionPhases } from "@/lib/orders/demo-data"
+import { useDemoOrders } from "@/lib/orders/use-demo-orders"
 
 export function DashboardClient({
   companies,
@@ -70,19 +60,83 @@ export function DashboardClient({
   operatorId: string
   role: AppRole
 }) {
+  return (
+    <OrdersOperatorProvider
+      companyId={companyId}
+      operator={{ userId: operatorId, name: fullName.trim() || email || "Tu cuenta" }}
+    >
+      <DashboardContent
+        companies={companies}
+        companyId={companyId}
+        companyName={companyName}
+        email={email}
+        fullName={fullName}
+        avatarUrl={avatarUrl}
+        role={role}
+      />
+    </OrdersOperatorProvider>
+  )
+}
+
+function DashboardContent({
+  companies,
+  companyId,
+  companyName,
+  email,
+  fullName,
+  avatarUrl,
+  role,
+}: {
+  companies: CompanyOption[]
+  companyId: string
+  companyName: string | null
+  email: string
+  fullName: string
+  avatarUrl: string | null
+  role: AppRole
+}) {
   const displayName = fullName.trim() || email || "Tu cuenta"
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("Todos")
+  const { orders, error: ordersError, loading: ordersLoading } = useDemoOrders()
+  const { inventory, error: inventoryError } = useDemoInventory()
+  const lowStock = inventory ? getLowStockVariants(inventory) : []
+  const availableStatuses = [...new Set(orders.map((order) => order.status))].sort()
+  const today = new Date()
+  const dueSoon = new Date(today)
+  dueSoon.setDate(dueSoon.getDate() + 3)
+  const dueSoonString = [
+    dueSoon.getFullYear(),
+    String(dueSoon.getMonth() + 1).padStart(2, "0"),
+    String(dueSoon.getDate()).padStart(2, "0"),
+  ].join("-")
+  const activeOrders = orders.filter((order) => order.status !== "Entregado")
+  const garments = orders.flatMap((order) => order.items)
+  const garmentsInProduction = garments.filter((item) => {
+    const phase = getGarmentPhase(item)
+    return phase > 0 && phase < garmentProductionPhases.length
+  }).length
+  const dueOrders = activeOrders.filter((order) => order.dueDate <= dueSoonString)
+  const productionStages = [
+    { id: 0, name: "Sin iniciar" },
+    ...garmentProductionPhases,
+  ].map((phase) => ({
+    ...phase,
+    count: garments.filter((item) => getGarmentPhase(item) === phase.id).length,
+  }))
   const filteredOrders = useMemo(
     () =>
-      data.filter((order) => {
+      orders.filter((order) => {
         const matchesSearch = `${order.id} ${order.customer} ${order.item}`
           .toLowerCase()
           .includes(search.toLowerCase())
         return matchesSearch && (statusFilter === "Todos" || order.status === statusFilter)
       }),
-    [search, statusFilter],
+    [orders, search, statusFilter],
   )
+  const formatDeliveryDate = (value: string) =>
+    new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short" })
+      .format(new Date(`${value}T00:00:00`))
 
   return (
     <SidebarProvider
@@ -118,29 +172,49 @@ export function DashboardClient({
             </p>
           </div>
 
-          <div
-            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
-            role="note"
-          >
-            Vista de demostración: los indicadores, pedidos, etapas y materiales
-            son ejemplos y aún no están conectados a tablas de Supabase.
-          </div>
+          {ordersError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              No se pudieron cargar los pedidos y la producción: {ordersError}
+            </p>
+          )}
+          {inventoryError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              No se pudo calcular el stock bajo: {inventoryError}
+            </p>
+          )}
 
           <section
             aria-label="Indicadores principales"
             className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
           >
-            {metrics.map((metric) => (
-              <Card key={metric.label}>
-                <CardHeader className="pb-2">
-                  <CardDescription>{metric.label}</CardDescription>
-                  <CardTitle className="text-3xl">{metric.value}</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  {metric.detail}
-                </CardContent>
-              </Card>
-            ))}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Pedidos activos</CardDescription>
+                <CardTitle className="text-3xl">{ordersLoading ? "—" : activeOrders.length}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">Pedidos registrados que aún no se han entregado</CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Prendas en producción</CardDescription>
+                <CardTitle className="text-3xl">{ordersLoading ? "—" : garmentsInProduction}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">Prendas en una fase activa de fabricación</CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Entregas vencidas o próximas</CardDescription>
+                <CardTitle className="text-3xl">{ordersLoading ? "—" : dueOrders.length}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">Pedidos pendientes hasta los próximos 3 días</CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription>Variantes con stock bajo</CardDescription>
+                <CardTitle className="text-3xl">{inventory ? lowStock.length : "—"}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">Disponibles iguales o inferiores al mínimo</CardContent>
+            </Card>
           </section>
 
           <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.9fr)]">
@@ -175,9 +249,9 @@ export function DashboardClient({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Todos">Todos</SelectItem>
-                        <SelectItem value="En producción">En producción</SelectItem>
-                        <SelectItem value="Pendiente">Pendiente</SelectItem>
-                        <SelectItem value="Listo">Listo</SelectItem>
+                        {availableStatuses.map((status) => (
+                          <SelectItem key={status} value={status}>{status}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -193,22 +267,29 @@ export function DashboardClient({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredOrders.map((order) => (
+                      {!ordersLoading && filteredOrders.slice(0, 5).map((order) => (
                         <TableRow key={order.id}>
                           <TableCell>
                             <div className="font-medium">{order.customer}</div>
                             <div className="text-xs text-muted-foreground">{order.id}</div>
                           </TableCell>
-                          <TableCell>{order.item}</TableCell>
-                          <TableCell>{order.due}</TableCell>
+                          <TableCell>{order.item} · {order.quantity} und.</TableCell>
+                          <TableCell>{formatDeliveryDate(order.dueDate)}</TableCell>
                           <TableCell>
-                            <Badge variant={order.status === "Listo" ? "default" : "outline"}>
+                            <Badge variant={order.status === "Entregado" ? "default" : "outline"}>
                               {order.status}
                             </Badge>
                           </TableCell>
                         </TableRow>
                       ))}
-                      {filteredOrders.length === 0 && (
+                      {ordersLoading && (
+                        <TableRow>
+                          <TableCell className="h-24 text-center text-muted-foreground" colSpan={4}>
+                            Cargando pedidos…
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {!ordersLoading && filteredOrders.length === 0 && (
                         <TableRow>
                           <TableCell className="h-24 text-center text-muted-foreground" colSpan={4}>
                             No hay pedidos que coincidan con la búsqueda.
@@ -224,40 +305,46 @@ export function DashboardClient({
             <section className="scroll-mt-6" id="produccion">
               <Card className="h-full">
                 <CardHeader>
-                  <CardTitle>Producción de hoy</CardTitle>
-                  <CardDescription>Órdenes activas por etapa</CardDescription>
+                  <CardTitle>Producción por etapa</CardTitle>
+                  <CardDescription>Prendas registradas según su fase actual</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {productionStages.map((stage) => (
-                    <div key={stage.name} className="space-y-2">
-                      <div className="flex justify-between gap-3 text-sm">
-                        <span className="font-medium">{stage.name}</span>
-                        <span className="text-muted-foreground">{stage.count}</span>
-                      </div>
-                      <div
-                        aria-label={`${stage.name}: ${stage.progress}%`}
-                        className="h-2 overflow-hidden rounded-full bg-muted"
-                        role="meter"
-                        aria-valuenow={stage.progress}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                      >
+                  {ordersLoading ? (
+                    <p className="text-sm text-muted-foreground">Cargando producción…</p>
+                  ) : garments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No hay prendas registradas para producción.</p>
+                  ) : productionStages.map((stage) => {
+                    const progress = Math.round(stage.count / garments.length * 100)
+                    return (
+                      <div key={stage.id} className="space-y-2">
+                        <div className="flex justify-between gap-3 text-sm">
+                          <span className="font-medium">{stage.name}</span>
+                          <span className="shrink-0 text-muted-foreground">{stage.count} prendas</span>
+                        </div>
                         <div
-                          className="h-full rounded-full bg-primary"
-                          style={{ width: `${stage.progress}%` }}
-                        />
+                          aria-label={`${stage.name}: ${progress}%`}
+                          className="h-2 overflow-hidden rounded-full bg-muted"
+                          role="meter"
+                          aria-valuenow={progress}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </CardContent>
               </Card>
             </section>
 
             <section className="scroll-mt-6" id="inventario">
               <InventorySummary
-                companyId={companyId}
-                operatorId={operatorId}
-                operatorName={displayName}
+                inventory={inventory}
+                inventoryError={inventoryError}
               />
             </section>
           </div>

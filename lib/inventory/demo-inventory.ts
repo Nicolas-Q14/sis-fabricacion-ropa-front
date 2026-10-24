@@ -52,6 +52,20 @@ export type InventoryState = {
   warehouses?: { id: string; name: string }[]
 }
 
+export function getLowStockVariants(inventory: InventoryState) {
+  return inventory.products.flatMap((product) =>
+    product.variants.flatMap((variant) => {
+      const physical = Object.values(variant.stockByWarehouse)
+        .reduce((sum, amount) => sum + amount, 0)
+      const reserved = inventory.reservedByVariant?.[variant.id] ?? 0
+      const available = Math.max(0, physical - reserved)
+      return available <= variant.minStock
+        ? [{ product: product.name, color: variant.color, size: variant.size, available }]
+        : []
+    }),
+  )
+}
+
 export type InventoryMovementInput = {
   type: InventoryMovementType
   variantId: string

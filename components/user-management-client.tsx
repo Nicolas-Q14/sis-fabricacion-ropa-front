@@ -3,7 +3,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { CheckIcon, ClipboardIcon, PowerIcon, UserPlusIcon } from 'lucide-react'
+import { CheckIcon, ClipboardIcon, PowerIcon, Trash2Icon, UserPlusIcon } from 'lucide-react'
 
 import { AppSidebar } from '@/components/app-sidebar'
 import { SiteHeader } from '@/components/site-header'
@@ -16,6 +16,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -62,6 +70,8 @@ export function UserManagementClient({
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [userToDelete, setUserToDelete] = useState<ManagedUser | null>(null)
   const [createdPassword, setCreatedPassword] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
@@ -164,6 +174,34 @@ export function UserManagementClient({
       toast.success('Contraseña temporal copiada.')
     } catch {
       toast.error('No se pudo copiar la contraseña. Selecciónala y cópiala manualmente.')
+    }
+  }
+
+  async function deleteUser() {
+    if (!userToDelete) return
+    if (userToDelete.isActive) {
+      toast.error('Desactiva el usuario antes de eliminarlo.')
+      return
+    }
+
+    setDeletingUserId(userToDelete.id)
+    try {
+      const response = await fetch(`/api/admin/users/${userToDelete.id}`, { method: 'DELETE' })
+      const result: { error?: string } = await response.json()
+
+      if (!response.ok) {
+        toast.error(result.error ?? 'No se pudo eliminar el perfil.')
+        return
+      }
+
+      setUsers((current) => current.filter((item) => item.id !== userToDelete.id))
+      setUserToDelete(null)
+      toast.success('Perfil eliminado.')
+      router.refresh()
+    } catch {
+      toast.error('No se pudo conectar con el servidor. Inténtalo de nuevo.')
+    } finally {
+      setDeletingUserId(null)
     }
   }
 
@@ -350,16 +388,35 @@ export function UserManagementClient({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          disabled={updatingUserId === item.id}
-                          onClick={() => updateUser(item, { isActive: !item.isActive })}
-                          size="sm"
-                          type="button"
-                          variant={item.isActive ? 'outline' : 'default'}
-                        >
-                          <PowerIcon />
-                          {item.isActive ? 'Desactivar' : 'Activar'}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            disabled={updatingUserId === item.id || deletingUserId === item.id}
+                            onClick={() => updateUser(item, { isActive: !item.isActive })}
+                            size="sm"
+                            type="button"
+                            variant={item.isActive ? 'outline' : 'default'}
+                          >
+                            <PowerIcon />
+                            {item.isActive ? 'Desactivar' : 'Activar'}
+                          </Button>
+                          <Button
+                            aria-label={`Eliminar perfil de ${item.fullName || item.email}`}
+                            disabled={updatingUserId === item.id || deletingUserId === item.id}
+                            onClick={() => {
+                              if (item.isActive) {
+                                toast.error('Desactiva el usuario antes de eliminarlo.')
+                                return
+                              }
+                              setUserToDelete(item)
+                            }}
+                            size="icon-sm"
+                            title={item.isActive ? 'Desactiva el usuario antes de eliminarlo' : 'Eliminar perfil'}
+                            type="button"
+                            variant="destructive"
+                          >
+                            <Trash2Icon />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -374,6 +431,41 @@ export function UserManagementClient({
               </Table>
             </CardContent>
           </Card>
+          <Dialog
+            open={userToDelete !== null}
+            onOpenChange={(open) => {
+              if (!open && deletingUserId === null) setUserToDelete(null)
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Eliminar perfil</DialogTitle>
+                <DialogDescription>
+                  ¿Eliminar permanentemente el perfil de {userToDelete?.fullName || userToDelete?.email}?
+                  Esta acción no se puede deshacer.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  disabled={deletingUserId !== null}
+                  onClick={() => setUserToDelete(null)}
+                  type="button"
+                  variant="outline"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  disabled={deletingUserId !== null}
+                  onClick={() => void deleteUser()}
+                  type="button"
+                  variant="destructive"
+                >
+                  <Trash2Icon />
+                  {deletingUserId === userToDelete?.id ? 'Eliminando…' : 'Eliminar perfil'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </main>
       </SidebarInset>
     </SidebarProvider>

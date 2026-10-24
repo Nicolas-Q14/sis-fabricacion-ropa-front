@@ -11,41 +11,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { OrdersOperatorProvider } from "@/components/orders/orders-operator-context"
-import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
+import { getLowStockVariants, type InventoryState } from "@/lib/inventory/demo-inventory"
 
 export function InventorySummary({
-  companyId,
-  operatorId,
-  operatorName,
+  inventory,
+  inventoryError,
 }: {
-  companyId: string
-  operatorId: string
-  operatorName: string
+  inventory: InventoryState | null
+  inventoryError: string | null
 }) {
-  return (
-    <OrdersOperatorProvider
-      companyId={companyId}
-      operator={{ userId: operatorId, name: operatorName }}
-    >
-      <InventorySummaryContent />
-    </OrdersOperatorProvider>
-  )
-}
-
-function InventorySummaryContent() {
-  const { inventory, error: inventoryError } = useDemoInventory()
-  const lowStock = (inventory?.products ?? []).flatMap((product) =>
-    product.variants.flatMap((variant) => {
-      const physical = Object.values(variant.stockByWarehouse)
-        .reduce((sum, amount) => sum + amount, 0)
-      const reserved = inventory?.reservedByVariant?.[variant.id] ?? 0
-      const available = Math.max(0, physical - reserved)
-      return available <= variant.minStock
-        ? [{ product: product.name, color: variant.color, size: variant.size, available }]
-        : []
-    }),
-  )
+  const lowStock = inventory ? getLowStockVariants(inventory) : []
 
   return (
     <div className="grid min-w-0 gap-5 lg:grid-cols-2">
