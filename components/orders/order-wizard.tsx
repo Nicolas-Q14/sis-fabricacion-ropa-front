@@ -1,7 +1,7 @@
 "use client"
 
-import type { FormEvent } from "react"
-import { useEffect, useState } from "react"
+import type { ChangeEvent, FormEvent } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -10,12 +10,17 @@ import { toast } from "sonner"
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  ChevronDownIcon,
   CheckIcon,
+  FileTextIcon,
   HouseIcon,
+  ImagePlusIcon,
   ListIcon,
   PlusIcon,
+  SearchIcon,
   Settings2Icon,
   Trash2Icon,
+  XIcon,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -57,6 +62,11 @@ import type { DemoOrder } from "@/lib/orders/demo-data"
 import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
 import { createSupabaseOrder } from "@/lib/orders/supabase-orders"
+import {
+  createSupabaseQuotation,
+  type QuotationImage,
+  type QuotationItem,
+} from "@/lib/orders/supabase-quotations"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 const priceAdjustmentSchema = z.object({
@@ -159,7 +169,59 @@ const orderSchema = z.object({
   }
 })
 
+const quotationFormSchema = z.object({
+  customer: z.string().trim().min(2, "Ingresa el nombre del cliente."),
+  note: z.string(),
+  entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
+  dueDate: z.string().min(1, "Selecciona la fecha pactada."),
+  salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
+  garments: z.array(z.object({
+    type: z.string().min(1, "Selecciona una prenda."),
+    fit: z.string().min(1, "Selecciona una horma."),
+    quantity: z.number().int().min(1, "La cantidad debe ser al menos 1."),
+  })).min(1, "Agrega al menos un tipo de prenda."),
+  items: z.array(garmentItemSchema).min(1, "Agrega al menos una fila de personalización."),
+}).refine((values) => values.dueDate >= values.entryDate, {
+  message: "La fecha de entrega debe ser igual o posterior al ingreso.",
+  path: ["dueDate"],
+}).superRefine((values, context) => {
+  if (values.items.some((item) => item.adjustment.enabled
+    && item.adjustment.type === "discount"
+    && item.adjustment.mode === "percent"
+    && item.adjustment.value > 100)) {
+    context.addIssue({
+      code: "custom",
+      message: "El descuento porcentual no puede superar el 100%.",
+      path: ["items"],
+    })
+  }
+
+  if (values.items.some((item) => item.adjustment.enabled
+    && item.adjustment.type === "discount"
+    && item.adjustment.mode === "fixed"
+    && item.adjustment.value > item.unitPrice + surchargeFor(item))) {
+    context.addIssue({
+      code: "custom",
+      message: "El descuento fijo no puede superar el valor de la prenda.",
+      path: ["items"],
+    })
+  }
+})
+
 type OrderFormValues = z.infer<typeof orderSchema>
+type SavedQuotation = {
+  id: string
+  quoteNumber: string
+  customer: string
+  salesperson: string
+  note: string
+  entryDate: string
+  dueDate: string
+  quantity: number
+  total: number
+  items: QuotationItem[]
+  images: QuotationImage[]
+}
 
 const steps = [
   { title: "Datos generales", detail: "Cliente y entrega" },
@@ -174,6 +236,19 @@ const defaultColors = ["Azul marino", "Blanco", "Negro"]
 const defaultSizes = ["4", "6", "8", "10", "12", "14", "XS", "S", "M", "L", "XL", "XXL"]
 const paymentMethods = ["Transferencia", "Efectivo", "Crédito"]
 const customSalespersonValue = "__personalizado__"
+const allowedReferenceImageTypes = ["image/jpeg", "image/png", "image/webp"]
+const maxReferenceImageSize = 5 * 1024 * 1024
+const maxReferenceImageCount = 10
+const garmentGroupColors = [
+  "border-l-emerald-500",
+  "border-l-orange-500",
+  "border-l-blue-500",
+  "border-l-violet-500",
+  "border-l-rose-500",
+  "border-l-cyan-500",
+  "border-l-amber-500",
+  "border-l-pink-500",
+]
 
 type FormItem = z.infer<typeof garmentItemSchema>
 
@@ -256,10 +331,23 @@ function today() {
 export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }) {
   const [step, setStep] = useState(0)
   const [savedOrder, setSavedOrder] = useState<DemoOrder | null>(null)
+  const [savedQuotation, setSavedQuotation] = useState<SavedQuotation | null>(null)
+  const [referenceImages, setReferenceImages] = useState<File[]>([])
+  const [isSavingQuotation, setIsSavingQuotation] = useState(false)
+  const referenceImageInput = useRef<HTMLInputElement>(null)
   const [isCustomSalesperson, setIsCustomSalesperson] = useState(false)
+  const [openGarmentTypeIndex, setOpenGarmentTypeIndex] = useState<number | null>(null)
+  const [garmentTypeSearch, setGarmentTypeSearch] = useState("")
+  const [sizeBatchGarmentPickerOpen, setSizeBatchGarmentPickerOpen] = useState(false)
+  const [sizeBatchGarmentSearch, setSizeBatchGarmentSearch] = useState("")
   const [bulkGarment, setBulkGarment] = useState("Camiseta")
   const [bulkFit, setBulkFit] = useState("Hombre")
   const [bulkPrice, setBulkPrice] = useState("")
+  const [sizeBatchGarment, setSizeBatchGarment] = useState("Camiseta")
+  const [sizeBatchFit, setSizeBatchFit] = useState("Hombre")
+  const [sizeBatchColor, setSizeBatchColor] = useState(defaultColors[0])
+  const [sizeBatchSize, setSizeBatchSize] = useState("")
+  const [sizeBatchQuantity, setSizeBatchQuantity] = useState("1")
   const { companyId } = useOrdersOperator()
   const { inventory, error: inventoryError } = useDemoInventory()
   const { refresh: refreshOrders } = useDemoOrders()
@@ -267,6 +355,16 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     ...defaultGarmentTypes,
     ...(inventory?.products.map((product) => product.name) ?? []),
   ])]
+  const visibleGarmentTypes = garmentTypeSearch.trim()
+    ? garmentTypes.filter((type) =>
+        type.toLocaleLowerCase("es").includes(garmentTypeSearch.trim().toLocaleLowerCase("es")),
+      )
+    : defaultGarmentTypes
+  const visibleSizeBatchGarmentTypes = sizeBatchGarmentSearch.trim()
+    ? garmentTypes.filter((type) =>
+        type.toLocaleLowerCase("es").includes(sizeBatchGarmentSearch.trim().toLocaleLowerCase("es")),
+      )
+    : defaultGarmentTypes
   const availableColors = [...new Set([
     ...defaultColors,
     ...(inventory?.products.flatMap((product) => product.variants.map((variant) => variant.color)) ?? []),
@@ -298,6 +396,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const watchedPaymentStatus = useWatch({ control: form.control, name: "paymentStatus" })
   const watchedPaymentMethod = useWatch({ control: form.control, name: "paymentMethod" })
   const watchedPaid = useWatch({ control: form.control, name: "paid" })
+  const garmentColors = new Map<string, string>()
+  for (const item of watchedItems) {
+    if (!garmentColors.has(item.garment)) {
+      garmentColors.set(
+        item.garment,
+        garmentGroupColors[garmentColors.size % garmentGroupColors.length],
+      )
+    }
+  }
   const variantOptions = watchedItems.map((item) => {
     const product = inventory?.products.find((candidate) => candidate.name === item?.garment)
     return {
@@ -305,6 +412,19 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       sizes: product ? [...new Set(product.variants.map((variant) => variant.size))] : availableSizes,
     }
   })
+  const sizeBatchProduct = inventory?.products.find((product) => product.name === sizeBatchGarment)
+  const sizeBatchColors = sizeBatchProduct
+    ? [...new Set(sizeBatchProduct.variants.map((variant) => variant.color))]
+    : availableColors
+  const sizeBatchSizes = sizeBatchProduct
+    ? [...new Set(sizeBatchProduct.variants.map((variant) => variant.size))]
+    : availableSizes
+  const selectedSizeBatchColor = sizeBatchColors.includes(sizeBatchColor)
+    ? sizeBatchColor
+    : sizeBatchColors[0] ?? ""
+  const selectedSizeBatchSize = sizeBatchSizes.includes(sizeBatchSize)
+    ? sizeBatchSize
+    : ""
   const totals = calculateTotals(watchedItems)
   const balance = Math.max(0, totals.grandTotal - (watchedPaid || 0))
 
@@ -386,6 +506,71 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     })
     items.replace(synchronizedItems)
     toast.success(`Matriz sincronizada: ${synchronizedItems.length} filas.`)
+  }
+
+  function addSizeBatch() {
+    const quantity = Number(sizeBatchQuantity)
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      toast.error("Ingresa una cantidad entera de prendas igual o mayor a uno.")
+      return
+    }
+    if (!selectedSizeBatchColor || !selectedSizeBatchSize) {
+      toast.error("Selecciona el color y la talla para cargar el lote.")
+      return
+    }
+
+    const garmentsValues = form.getValues("garments")
+    const garmentIndex = garmentsValues.findIndex(
+      (garment) => garment.type === sizeBatchGarment && garment.fit === sizeBatchFit,
+    )
+    if (garmentIndex >= 0 && (
+      !Number.isInteger(garmentsValues[garmentIndex].quantity)
+      || garmentsValues[garmentIndex].quantity < 1
+    )) {
+      toast.error("Corrige la cantidad de prendas de esta combinación antes de cargar el lote.")
+      return
+    }
+
+    const currentItems = form.getValues("items")
+    const emptyRows = currentItems
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) =>
+        item.garment === sizeBatchGarment
+        && item.fit === sizeBatchFit
+        && !item.size.trim(),
+      )
+    const filledRows = Math.min(quantity, emptyRows.length)
+
+    for (const { index } of emptyRows.slice(0, filledRows)) {
+      form.setValue(`items.${index}.color`, selectedSizeBatchColor, { shouldDirty: true })
+      form.setValue(`items.${index}.size`, selectedSizeBatchSize, { shouldDirty: true })
+    }
+
+    const addedItems = Array.from(
+      { length: quantity - filledRows },
+      () => ({
+        ...defaultItem(sizeBatchGarment, sizeBatchFit),
+        color: selectedSizeBatchColor,
+        size: selectedSizeBatchSize,
+      }),
+    )
+    if (addedItems.length > 0) items.append(addedItems)
+
+    if (garmentIndex >= 0) {
+      form.setValue(
+        `garments.${garmentIndex}.quantity`,
+        garmentsValues[garmentIndex].quantity + addedItems.length,
+        { shouldDirty: true, shouldValidate: true },
+      )
+    } else {
+      garments.append({
+        type: sizeBatchGarment,
+        fit: sizeBatchFit,
+        quantity,
+      })
+    }
+
+    toast.success(`Lote cargado: ${quantity} prendas talla ${selectedSizeBatchSize}.`)
   }
 
   function applyBulkPrice() {
@@ -487,6 +672,107 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }
   }
 
+  function selectReferenceImages(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = [...(event.target.files ?? [])]
+    event.target.value = ""
+    if (referenceImages.length + selectedFiles.length > maxReferenceImageCount) {
+      toast.error(`Puedes adjuntar hasta ${maxReferenceImageCount} imágenes por cotización.`)
+      return
+    }
+    const invalidType = selectedFiles.find((file) => !allowedReferenceImageTypes.includes(file.type))
+    if (invalidType) {
+      toast.error("Las imágenes deben estar en formato JPG, PNG o WebP.")
+      return
+    }
+    const oversizedImage = selectedFiles.find((file) => file.size > maxReferenceImageSize)
+    if (oversizedImage) {
+      toast.error("Cada imagen de referencia puede pesar hasta 5 MB.")
+      return
+    }
+    setReferenceImages((current) => [...current, ...selectedFiles])
+  }
+
+  async function saveAsQuotation() {
+    if (savedQuotation) {
+      toast.info(`La cotización ${savedQuotation.quoteNumber} ya está guardada.`)
+      return
+    }
+
+    const parsedValues = quotationFormSchema.safeParse(form.getValues())
+    if (!parsedValues.success) {
+      toast.error(parsedValues.error.issues[0]?.message ?? "Revisa los datos de la cotización.")
+      return
+    }
+
+    const values = parsedValues.data
+    const expectedByCategory = new Map<string, number>()
+    for (const garment of values.garments) {
+      const key = `${garment.type}:${garment.fit}`
+      expectedByCategory.set(key, (expectedByCategory.get(key) ?? 0) + garment.quantity)
+    }
+    const actualByCategory = new Map<string, number>()
+    for (const item of values.items) {
+      const key = `${item.garment}:${item.fit}`
+      actualByCategory.set(key, (actualByCategory.get(key) ?? 0) + 1)
+    }
+    const matrixMatches = expectedByCategory.size === actualByCategory.size
+      && [...expectedByCategory].every(([category, count]) => actualByCategory.get(category) === count)
+    if (!matrixMatches) {
+      toast.error("Sincroniza la matriz para que tenga una fila por cada prenda.")
+      return
+    }
+
+    const quantity = values.garments.reduce((total, garment) => total + garment.quantity, 0)
+    const quotationTotals = calculateTotals(values.items)
+    const quotationItems = values.items.map((item) => ({
+      garment: item.garment,
+      fit: item.fit,
+      color: item.color,
+      size: item.size,
+      name: item.name,
+      number: item.number,
+      notes: item.notes,
+      unitPrice: item.unitPrice,
+      adjustment: item.adjustment,
+      netPrice: Math.max(0, item.unitPrice + surchargeFor(item) - discountFor(item)),
+    }))
+
+    setIsSavingQuotation(true)
+    try {
+      const created = await createSupabaseQuotation(companyId, {
+        customer_name: values.customer,
+        salesperson: values.salesperson,
+        note: values.note,
+        entry_date: values.entryDate,
+        delivery_date: values.dueDate,
+        quantity,
+        subtotal: quotationTotals.subtotal,
+        surcharges: quotationTotals.surcharges,
+        discounts: quotationTotals.discounts,
+        grand_total: quotationTotals.grandTotal,
+        items: quotationItems,
+      }, referenceImages)
+      setSavedQuotation({
+        id: created.id,
+        quoteNumber: created.quoteNumber,
+        customer: values.customer,
+        salesperson: values.salesperson,
+        note: values.note,
+        entryDate: values.entryDate,
+        dueDate: values.dueDate,
+        quantity,
+        total: quotationTotals.grandTotal,
+        items: quotationItems,
+        images: created.images,
+      })
+      toast.success(`Cotización ${created.quoteNumber} guardada sin registrar un pedido.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar la cotización.")
+    } finally {
+      setIsSavingQuotation(false)
+    }
+  }
+
   async function shareQuote() {
     if (!savedOrder) return
 
@@ -530,6 +816,130 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       if (error instanceof DOMException && error.name === "AbortError") return
       toast.error("No se pudo compartir la cotización. Intenta copiarla desde un navegador con permisos.")
     }
+  }
+
+  async function shareSavedQuotation() {
+    if (!savedQuotation) return
+    const text = [
+      `Cotización ${savedQuotation.quoteNumber}`,
+      `Cliente: ${savedQuotation.customer}`,
+      `Entrega pactada: ${savedQuotation.dueDate}`,
+      "",
+      ...savedQuotation.items.map((item) =>
+        `• ${item.garment} ${item.fit}, ${item.color}, talla ${item.size}${item.name ? ` · ${item.name}` : ""}${item.number ? ` · N.º ${item.number}` : ""}: ${money(item.netPrice)}`,
+      ),
+      "",
+      `Total: ${money(savedQuotation.total)}`,
+      ...savedQuotation.images.map((image, index) => `Imagen de referencia ${index + 1}: ${image.signedUrl}`),
+    ].join("\n")
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Cotización ${savedQuotation.quoteNumber}`, text })
+        toast.success("Cotización compartida.")
+        return
+      }
+
+      await navigator.clipboard.writeText(text)
+      toast.success("Cotización copiada con los enlaces de sus imágenes.")
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return
+      toast.error("No se pudo compartir la cotización. Intenta copiarla desde un navegador con permisos.")
+    }
+  }
+
+  function downloadSavedQuotation() {
+    if (!savedQuotation) return
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      toast.error("El navegador bloqueó la ventana de impresión. Permite ventanas emergentes e inténtalo de nuevo.")
+      return
+    }
+
+    const rows = savedQuotation.items.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.garment)} · ${escapeHtml(item.fit)} · ${escapeHtml(item.color)} · Talla ${escapeHtml(item.size)}${item.name ? `<br>Nombre: ${escapeHtml(item.name)}` : ""}${item.number ? `<br>Número: ${escapeHtml(item.number)}` : ""}</td>
+        <td class="number">${escapeHtml(money(item.netPrice))}</td>
+      </tr>`,
+    ).join("")
+    const images = savedQuotation.images.map((image, index) => `
+      <figure>
+        <img src="${escapeHtml(image.signedUrl)}" alt="Imagen de referencia ${index + 1}">
+        <figcaption>Imagen de referencia ${index + 1}</figcaption>
+      </figure>`,
+    ).join("")
+
+    printWindow.document.open()
+    printWindow.document.write(`<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cotización ${escapeHtml(savedQuotation.quoteNumber)}</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { color: #172033; font: 14px/1.5 Arial, sans-serif; margin: 0 auto; max-width: 760px; }
+    header { border-bottom: 2px solid #172033; margin-bottom: 24px; padding-bottom: 16px; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 28px 0 10px; }
+    .muted { color: #667085; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #d9dee8; padding: 9px 6px; text-align: left; vertical-align: top; }
+    th { background: #f3f5f8; }
+    .number { text-align: right; white-space: nowrap; }
+    .total { border-top: 2px solid #172033; font-size: 18px; font-weight: 700; margin: 16px 0 0 auto; max-width: 300px; padding-top: 10px; text-align: right; }
+    .references { display: grid; gap: 16px; grid-template-columns: repeat(2, 1fr); }
+    figure { margin: 0; page-break-inside: avoid; }
+    figure img { max-height: 320px; object-fit: contain; width: 100%; }
+    figcaption { color: #667085; font-size: 12px; }
+    .print-button { background: #172033; border: 0; border-radius: 6px; color: white; cursor: pointer; margin: 20px 0; padding: 12px 18px; }
+    @media print { .print-button { display: none; } }
+  </style>
+</head>
+<body>
+  <button class="print-button" id="print-quotation">Descargar o imprimir como PDF</button>
+  <header>
+    <h1>Cotización ${escapeHtml(savedQuotation.quoteNumber)}</h1>
+    <div class="muted">${escapeHtml(new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()))}</div>
+  </header>
+  <section>
+    <p><strong>Cliente:</strong> ${escapeHtml(savedQuotation.customer)}</p>
+    <p><strong>Vendedor:</strong> ${escapeHtml(savedQuotation.salesperson)}</p>
+    <p><strong>Fecha de ingreso:</strong> ${escapeHtml(savedQuotation.entryDate)}</p>
+    <p><strong>Entrega pactada:</strong> ${escapeHtml(savedQuotation.dueDate)}</p>
+    <p><strong>Cantidad:</strong> ${savedQuotation.quantity} prendas</p>
+    ${savedQuotation.note ? `<p><strong>Nota:</strong> ${escapeHtml(savedQuotation.note)}</p>` : ""}
+  </section>
+  <h2>Detalle de prendas</h2>
+  <table>
+    <thead><tr><th>Prenda</th><th class="number">Valor por unidad</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <p class="total">Total: ${escapeHtml(money(savedQuotation.total))}</p>
+  ${images ? `<h2>Imágenes de referencia</h2><section class="references">${images}</section>` : ""}
+  <p class="muted">Esta cotización no constituye un pedido confirmado.</p>
+</body>
+</html>`)
+    printWindow.document.close()
+    printWindow.document.getElementById("print-quotation")?.addEventListener("click", () => {
+      printWindow.print()
+    })
+    let hasPrinted = false
+    const printOnce = () => {
+      if (hasPrinted) return
+      hasPrinted = true
+      printWindow.focus()
+      printWindow.print()
+    }
+    const imagesLoaded = Promise.all(Array.from(printWindow.document.images).map((image) => {
+      if (image.complete) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        image.addEventListener("load", () => resolve(), { once: true })
+        image.addEventListener("error", () => resolve(), { once: true })
+      })
+    }))
+    void imagesLoaded.then(() => window.setTimeout(printOnce, 100))
+    window.setTimeout(printOnce, 5000)
   }
 
   function downloadReceipt() {
@@ -760,22 +1170,87 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   </TableHeader>
                   <TableBody>
                     {garments.fields.map((row, index) => (
-                      <TableRow key={row.id}>
+                      <TableRow
+                        className={
+                          index > 0 && watchedGarments[index - 1]?.type !== watchedGarments[index]?.type
+                            ? "border-t-4 border-t-background"
+                            : undefined
+                        }
+                        key={row.id}
+                      >
                         <TableCell>
-                          <Controller
-                            control={form.control}
-                            name={`garments.${index}.type`}
-                            render={({ field }) => (
-                              <Select value={field.value} onValueChange={(value) => field.onChange(value ?? "")}>
-                                <SelectTrigger aria-label={`Prenda ${index + 1}`} className="w-full min-w-36">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {garmentTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          />
+                          <Popover
+                            open={openGarmentTypeIndex === index}
+                            onOpenChange={(open) => {
+                              setOpenGarmentTypeIndex(open ? index : null)
+                              if (open) setGarmentTypeSearch("")
+                            }}
+                          >
+                            <PopoverTrigger
+                              render={
+                                <Button
+                                  aria-expanded={openGarmentTypeIndex === index}
+                                  aria-label={`Prenda ${index + 1}`}
+                                  className="w-full min-w-36 justify-between"
+                                  role="combobox"
+                                  type="button"
+                                  variant="outline"
+                                />
+                              }
+                            >
+                              <span className="truncate">
+                                {watchedGarments[index]?.type || "Selecciona una prenda"}
+                              </span>
+                              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="w-[min(88vw,320px)] p-2">
+                              <div className="relative">
+                                <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                  aria-label="Buscar tipo de prenda"
+                                  autoFocus
+                                  className="pl-8"
+                                  onChange={(event) => setGarmentTypeSearch(event.target.value)}
+                                  placeholder="Buscar entre todas las prendas…"
+                                  value={garmentTypeSearch}
+                                />
+                              </div>
+                              <div
+                                aria-label="Tipos de prenda"
+                                className="mt-2 max-h-56 overflow-y-auto"
+                                role="listbox"
+                              >
+                                {visibleGarmentTypes.length > 0 ? visibleGarmentTypes.map((type) => {
+                                  const selected = watchedGarments[index]?.type === type
+                                  return (
+                                    <Button
+                                      aria-selected={selected}
+                                      className="w-full justify-between"
+                                      key={type}
+                                      onClick={() => {
+                                        form.setValue(`garments.${index}.type`, type, {
+                                          shouldDirty: true,
+                                          shouldValidate: true,
+                                        })
+                                        setOpenGarmentTypeIndex(null)
+                                        setGarmentTypeSearch("")
+                                      }}
+                                      role="option"
+                                      type="button"
+                                      variant="ghost"
+                                    >
+                                      <span className="truncate">{type}</span>
+                                      {selected && <CheckIcon className="size-4 shrink-0" />}
+                                    </Button>
+                                  )
+                                }) : (
+                                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                                    No se encontraron prendas.
+                                  </p>
+                                )}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
                         </TableCell>
                         <TableCell>
                           <Controller
@@ -832,6 +1307,133 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
             </Card>
             <Card>
               <CardHeader>
+                <CardTitle>Carga por lote de tallas</CardTitle>
+                <CardDescription>
+                  Agrega varias prendas de la misma talla. Cada prenda conserva su propia fila para personalizar nombre y número.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="space-y-2 text-sm font-medium">
+                  Tipo de prenda
+                  <Popover
+                    open={sizeBatchGarmentPickerOpen}
+                    onOpenChange={(open) => {
+                      setSizeBatchGarmentPickerOpen(open)
+                      if (open) setSizeBatchGarmentSearch("")
+                    }}
+                  >
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          aria-expanded={sizeBatchGarmentPickerOpen}
+                          aria-label="Tipo de prenda del lote"
+                          className="w-full justify-between"
+                          role="combobox"
+                          type="button"
+                          variant="outline"
+                        />
+                      }
+                    >
+                      <span className="truncate">{sizeBatchGarment}</span>
+                      <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-[min(88vw,320px)] p-2">
+                      <div className="relative">
+                        <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          aria-label="Buscar tipo de prenda para lote"
+                          autoFocus
+                          className="pl-8"
+                          onChange={(event) => setSizeBatchGarmentSearch(event.target.value)}
+                          placeholder="Buscar entre todas las prendas…"
+                          value={sizeBatchGarmentSearch}
+                        />
+                      </div>
+                      <div
+                        aria-label="Tipos de prenda para lote"
+                        className="mt-2 max-h-56 overflow-y-auto"
+                        role="listbox"
+                      >
+                        {visibleSizeBatchGarmentTypes.length > 0
+                          ? visibleSizeBatchGarmentTypes.map((type) => {
+                              const selected = sizeBatchGarment === type
+                              return (
+                                <Button
+                                  aria-selected={selected}
+                                  className="w-full justify-between"
+                                  key={type}
+                                  onClick={() => {
+                                    setSizeBatchGarment(type)
+                                    setSizeBatchGarmentPickerOpen(false)
+                                    setSizeBatchGarmentSearch("")
+                                  }}
+                                  role="option"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <span className="truncate">{type}</span>
+                                  {selected && <CheckIcon className="size-4 shrink-0" />}
+                                </Button>
+                              )
+                            })
+                          : (
+                            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                              No se encontraron prendas.
+                            </p>
+                          )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </label>
+                <label className="space-y-2 text-sm font-medium">
+                  Horma
+                  <Select value={sizeBatchFit} onValueChange={(value) => value && setSizeBatchFit(value)}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {fits.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-2 text-sm font-medium">
+                  Color
+                  <Select value={selectedSizeBatchColor} onValueChange={(value) => value && setSizeBatchColor(value)}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Selecciona un color" /></SelectTrigger>
+                    <SelectContent>
+                      {sizeBatchColors.map((color) => (
+                        <SelectItem key={color} value={color}>{color}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-2 text-sm font-medium">
+                  Talla
+                  <Select value={selectedSizeBatchSize || null} onValueChange={(value) => value && setSizeBatchSize(value)}>
+                    <SelectTrigger className="w-full"><SelectValue placeholder="Selecciona una talla" /></SelectTrigger>
+                    <SelectContent>
+                      {sizeBatchSizes.map((size) => (
+                        <SelectItem key={size} value={size}>{size}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-2 text-sm font-medium">
+                  Cantidad de prendas
+                  <Input
+                    min={1}
+                    onChange={(event) => setSizeBatchQuantity(event.target.value)}
+                    type="number"
+                    value={sizeBatchQuantity}
+                  />
+                </label>
+                <div className="flex items-end">
+                  <Button className="w-full" onClick={addSizeBatch} type="button">
+                    <PlusIcon data-icon="inline-start" /> Cargar lote
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <CardTitle>Matriz de personalización</CardTitle>
@@ -858,8 +1460,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                     </TableHeader>
                     <TableBody>
                       {items.fields.map((row, index) => (
-                        <TableRow key={row.id}>
-                          <TableCell className="min-w-36 text-xs">
+                        <TableRow
+                          className={
+                            index > 0 && watchedItems[index - 1]?.garment !== watchedItems[index]?.garment
+                              ? "border-t-4 border-t-background"
+                              : undefined
+                          }
+                          key={row.id}
+                        >
+                          <TableCell className={`min-w-36 border-l-2 pl-3 text-xs ${garmentColors.get(watchedItems[index]?.garment ?? "") ?? "border-l-border"}`}>
                             <p className="font-medium">{watchedItems[index]?.garment}</p>
                             <p className="text-muted-foreground">{watchedItems[index]?.fit}</p>
                           </TableCell>
@@ -1016,8 +1625,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                           const discount = discountFor(currentItem)
                           const netPrice = Math.max(0, currentItem.unitPrice + surcharge - discount)
                           return (
-                            <TableRow key={row.id}>
-                              <TableCell className="min-w-48">
+                            <TableRow
+                              className={
+                                index > 0 && watchedItems[index - 1]?.garment !== currentItem.garment
+                                  ? "border-t-4 border-t-background"
+                                  : undefined
+                              }
+                              key={row.id}
+                            >
+                              <TableCell className={`min-w-48 border-l-2 pl-3 ${garmentColors.get(currentItem.garment) ?? "border-l-border"}`}>
                                 <p className="font-medium">
                                   {currentItem.garment} · {currentItem.size || "Sin talla"}
                                 </p>
@@ -1274,9 +1890,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                     <span className="text-sm text-muted-foreground">Saldo pendiente</span>
                     <Badge variant={balance === 0 ? "secondary" : "outline"}>{money(balance)}</Badge>
                   </div>
-                  {!savedOrder && (
+                  {!savedOrder && !savedQuotation && (
                     <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                      El pedido aún no se ha guardado. Revisa los datos y confírmalo con el botón inferior.
+                      Aún no se ha guardado un pedido. También puedes guardar esta información solo como cotización.
                     </p>
                   )}
                   {savedOrder && (
@@ -1320,6 +1936,104 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   )}
                 </CardContent>
               </Card>
+
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle>Cotización</CardTitle>
+                  <CardDescription>
+                    Guarda una propuesta sin consultar existencias, crear un pedido ni registrar pagos. Puedes adjuntar hasta 10 imágenes de referencia.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <input
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    disabled={Boolean(savedQuotation)}
+                    multiple
+                    onChange={selectReferenceImages}
+                    ref={referenceImageInput}
+                    type="file"
+                  />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      disabled={Boolean(savedQuotation) || referenceImages.length >= maxReferenceImageCount}
+                      onClick={() => referenceImageInput.current?.click()}
+                      type="button"
+                      variant="outline"
+                    >
+                      <ImagePlusIcon data-icon="inline-start" /> Agregar imágenes de referencia
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      JPG, PNG o WebP · máximo 5 MB por imagen · {referenceImages.length}/{maxReferenceImageCount}
+                    </span>
+                  </div>
+                  {referenceImages.length > 0 && (
+                    <ul className="space-y-2">
+                      {referenceImages.map((image, index) => (
+                        <li
+                          className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
+                          key={`${image.name}-${image.lastModified}-${index}`}
+                        >
+                          <span className="min-w-0 truncate">{image.name}</span>
+                          <Button
+                            aria-label={`Quitar imagen ${image.name}`}
+                            disabled={Boolean(savedQuotation)}
+                            onClick={() => setReferenceImages((current) =>
+                              current.filter((_, imageIndex) => imageIndex !== index),
+                            )}
+                            size="icon-sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <XIcon />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {savedQuotation ? (
+                    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+                      <div>
+                        <p className="font-medium">Cotización {savedQuotation.quoteNumber} guardada</p>
+                        <p className="text-sm opacity-80">
+                          No se creó ningún pedido ni se registró pago. Las imágenes quedaron asociadas a la cotización.
+                        </p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <Button className="w-full" onClick={downloadSavedQuotation} type="button">
+                          Descargar / imprimir PDF
+                        </Button>
+                        <Button
+                          className="w-full"
+                          onClick={() => void shareSavedQuotation()}
+                          type="button"
+                          variant="outline"
+                        >
+                          Compartir cotización
+                        </Button>
+                        <Button
+                          className="w-full"
+                          nativeButton={false}
+                          render={<Link href="/dashboard/quotations" />}
+                          variant="outline"
+                        >
+                          Ver cotizaciones
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      disabled={isSavingQuotation || form.formState.isSubmitting}
+                      onClick={() => void saveAsQuotation()}
+                      type="button"
+                    >
+                      {isSavingQuotation
+                        ? "Guardando cotización…"
+                        : <><FileTextIcon data-icon="inline-start" /> Usar como cotización</>}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -1341,7 +2055,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
               </Button>
             ) : (
               <Button
-                disabled={form.formState.isSubmitting || Boolean(savedOrder)}
+                disabled={form.formState.isSubmitting || isSavingQuotation || Boolean(savedOrder)}
                 onClick={() => void form.handleSubmit(submitOrder)()}
                 type="button"
               >

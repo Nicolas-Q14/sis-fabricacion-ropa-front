@@ -13,7 +13,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -34,12 +36,69 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar"
 import { appRoleLabels, type AppRole, type CompanyOption } from "@/lib/auth/roles"
-import { SearchIcon } from "lucide-react"
+import { CalendarDaysIcon, SearchIcon } from "lucide-react"
 import { OrdersOperatorProvider } from "@/components/orders/orders-operator-context"
 import { getLowStockVariants } from "@/lib/inventory/demo-inventory"
 import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { getGarmentPhase, garmentProductionPhases } from "@/lib/orders/demo-data"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+
+type ProductionDatePreset = "all" | "week" | "month"
+type ProductionDateFilter = ProductionDatePreset | "custom"
+type ProductionDateRange = { start: string; end: string }
+
+function toLocalDateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
+function formatProductionDateRange(range: ProductionDateRange) {
+  const formatter = new Intl.DateTimeFormat("es-CO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+  return `${formatter.format(new Date(`${range.start}T00:00:00`))} – ${formatter.format(new Date(`${range.end}T00:00:00`))}`
+}
+
+function getOrderDateKey(order: { entryDate?: string; createdAt?: string }) {
+  const value = order.entryDate || order.createdAt
+  if (!value) return null
+
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly
+    const date = new Date(Number(year), Number(month) - 1, Number(day))
+    return date.getFullYear() === Number(year)
+      && date.getMonth() === Number(month) - 1
+      && date.getDate() === Number(day)
+      ? value
+      : null
+  }
+
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : toLocalDateKey(date)
+}
+
+function getProductionDateRange(filter: ProductionDatePreset, today: Date) {
+  if (filter === "all") return null
+
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  let end: Date
+  if (filter === "week") {
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
+    end = new Date(start)
+    end.setDate(end.getDate() + 7)
+  } else {
+    start.setDate(1)
+    end = new Date(start.getFullYear(), start.getMonth() + 1, 1)
+  }
+
+  return { start: toLocalDateKey(start), end: toLocalDateKey(end) }
+}
 
 export function DashboardClient({
   companies,
@@ -98,6 +157,10 @@ function DashboardContent({
   const displayName = fullName.trim() || email || "Tu cuenta"
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState("Todos")
+  const [productionDateFilter, setProductionDateFilter] = useState<ProductionDateFilter>("all")
+  const [productionCustomRange, setProductionCustomRange] = useState<ProductionDateRange | null>(null)
+  const [dateRangeDraft, setDateRangeDraft] = useState<ProductionDateRange>({ start: "", end: "" })
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
   const { orders, error: ordersError, loading: ordersLoading } = useDemoOrders()
   const { inventory, error: inventoryError } = useDemoInventory()
   const lowStock = inventory ? getLowStockVariants(inventory) : []
@@ -112,6 +175,21 @@ function DashboardContent({
   ].join("-")
   const activeOrders = orders.filter((order) => order.status !== "Entregado")
   const garments = orders.flatMap((order) => order.items)
+  const productionOrders = productionDateFilter === "all"
+    ? orders
+    : orders.filter((order) => {
+        const orderDate = getOrderDateKey(order)
+        if (orderDate === null) return false
+        if (productionDateFilter === "custom") {
+          return productionCustomRange !== null
+            && orderDate >= productionCustomRange.start
+            && orderDate <= productionCustomRange.end
+        }
+
+        const range = getProductionDateRange(productionDateFilter, today)
+        return range !== null && orderDate >= range.start && orderDate < range.end
+      })
+  const productionGarments = productionOrders.flatMap((order) => order.items)
   const garmentsInProduction = garments.filter((item) => {
     const phase = getGarmentPhase(item)
     return phase > 0 && phase < garmentProductionPhases.length
@@ -122,7 +200,7 @@ function DashboardContent({
     ...garmentProductionPhases,
   ].map((phase) => ({
     ...phase,
-    count: garments.filter((item) => getGarmentPhase(item) === phase.id).length,
+    count: productionGarments.filter((item) => getGarmentPhase(item) === phase.id).length,
   }))
   const filteredOrders = useMemo(
     () =>
@@ -305,16 +383,120 @@ function DashboardContent({
             <section className="scroll-mt-6" id="produccion">
               <Card className="h-full">
                 <CardHeader>
-                  <CardTitle>Producción por etapa</CardTitle>
-                  <CardDescription>Prendas registradas según su fase actual</CardDescription>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <CardTitle>Producción por etapa</CardTitle>
+                      <CardDescription>
+                        Prendas según su fase actual en pedidos registrados durante el periodo
+                      </CardDescription>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Select
+                        value={productionDateFilter}
+                        onValueChange={(value) => {
+                          if (value === "all" || value === "week" || value === "month") {
+                            setProductionDateFilter(value)
+                          } else if (value === "custom") {
+                            setDateRangeDraft(productionCustomRange ?? { start: "", end: "" })
+                            setDatePickerOpen(true)
+                          }
+                        }}
+                      >
+                        <SelectTrigger aria-label="Filtrar producción por fecha" className="w-full sm:w-40">
+                          <SelectValue placeholder="Periodo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todo el tiempo</SelectItem>
+                          <SelectItem value="week">Esta semana</SelectItem>
+                          <SelectItem value="month">Este mes</SelectItem>
+                          <SelectItem value="custom">Rango personalizado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Popover
+                        open={datePickerOpen}
+                        onOpenChange={(open) => {
+                          setDatePickerOpen(open)
+                          if (open) {
+                            setDateRangeDraft(productionCustomRange ?? { start: "", end: "" })
+                          }
+                        }}
+                      >
+                        <PopoverTrigger
+                          render={
+                            <Button
+                              aria-label="Seleccionar rango de fechas para producción"
+                              className="w-full sm:w-auto"
+                              variant="outline"
+                            >
+                              <CalendarDaysIcon />
+                              {productionDateFilter === "custom" && productionCustomRange
+                                ? formatProductionDateRange(productionCustomRange)
+                                : "Elegir fechas"}
+                            </Button>
+                          }
+                        />
+                        <PopoverContent align="end" className="w-[min(88vw,340px)] space-y-4">
+                          <div>
+                            <p className="text-sm font-medium">Rango de fechas</p>
+                            <p className="text-sm text-muted-foreground">
+                              Selecciona las fechas de inicio y fin.
+                            </p>
+                          </div>
+                          <div className="grid gap-3">
+                            <label className="grid gap-1.5 text-sm font-medium">
+                              Desde
+                              <Input
+                                max={dateRangeDraft.end || undefined}
+                                onChange={(event) => setDateRangeDraft((range) => ({
+                                  ...range,
+                                  start: event.target.value,
+                                }))}
+                                type="date"
+                                value={dateRangeDraft.start}
+                              />
+                            </label>
+                            <label className="grid gap-1.5 text-sm font-medium">
+                              Hasta
+                              <Input
+                                min={dateRangeDraft.start || undefined}
+                                onChange={(event) => setDateRangeDraft((range) => ({
+                                  ...range,
+                                  end: event.target.value,
+                                }))}
+                                type="date"
+                                value={dateRangeDraft.end}
+                              />
+                            </label>
+                          </div>
+                          <Button
+                            className="w-full"
+                            disabled={
+                              !dateRangeDraft.start
+                              || !dateRangeDraft.end
+                              || dateRangeDraft.start > dateRangeDraft.end
+                            }
+                            onClick={() => {
+                              setProductionCustomRange(dateRangeDraft)
+                              setProductionDateFilter("custom")
+                              setDatePickerOpen(false)
+                            }}
+                          >
+                            Aplicar rango
+                          </Button>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {ordersLoading ? (
                     <p className="text-sm text-muted-foreground">Cargando producción…</p>
-                  ) : garments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No hay prendas registradas para producción.</p>
+                  ) : productionGarments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No hay prendas registradas en este periodo.
+                    </p>
                   ) : productionStages.map((stage) => {
-                    const progress = Math.round(stage.count / garments.length * 100)
+                    const progress = Math.round(stage.count / productionGarments.length * 100)
                     return (
                       <div key={stage.id} className="space-y-2">
                         <div className="flex justify-between gap-3 text-sm">
