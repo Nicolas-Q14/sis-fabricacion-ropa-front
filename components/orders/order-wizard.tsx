@@ -340,8 +340,8 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const [garmentTypeSearch, setGarmentTypeSearch] = useState("")
   const [sizeBatchGarmentPickerOpen, setSizeBatchGarmentPickerOpen] = useState(false)
   const [sizeBatchGarmentSearch, setSizeBatchGarmentSearch] = useState("")
-  const [bulkGarment, setBulkGarment] = useState("Camiseta")
-  const [bulkFit, setBulkFit] = useState("Hombre")
+  const [bulkGarment, setBulkGarment] = useState("")
+  const [bulkFit, setBulkFit] = useState("")
   const [bulkPrice, setBulkPrice] = useState("")
   const [sizeBatchGarment, setSizeBatchGarment] = useState("Camiseta")
   const [sizeBatchFit, setSizeBatchFit] = useState("Hombre")
@@ -396,6 +396,18 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const watchedPaymentStatus = useWatch({ control: form.control, name: "paymentStatus" })
   const watchedPaymentMethod = useWatch({ control: form.control, name: "paymentMethod" })
   const watchedPaid = useWatch({ control: form.control, name: "paid" })
+  const bulkGarmentOptions = [...new Set(watchedGarments.map((garment) => garment.type))]
+  const selectedBulkGarment = bulkGarmentOptions.includes(bulkGarment)
+    ? bulkGarment
+    : bulkGarmentOptions[0] ?? ""
+  const bulkFitOptions = [...new Set(
+    watchedGarments
+      .filter((garment) => garment.type === selectedBulkGarment)
+      .map((garment) => garment.fit),
+  )]
+  const selectedBulkFit = bulkFitOptions.includes(bulkFit)
+    ? bulkFit
+    : bulkFitOptions[0] ?? ""
   const garmentColors = new Map<string, string>()
   for (const item of watchedItems) {
     if (!garmentColors.has(item.garment)) {
@@ -582,7 +594,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
 
     let updated = 0
     form.getValues("items").forEach((item, index) => {
-      if (item.garment !== bulkGarment || item.fit !== bulkFit || item.priceManuallyEdited) return
+      if (item.garment !== selectedBulkGarment || item.fit !== selectedBulkFit || item.priceManuallyEdited) return
       form.setValue(`items.${index}.unitPrice`, parsedPrice, {
         shouldDirty: true,
         shouldValidate: true,
@@ -770,51 +782,6 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       toast.error(error instanceof Error ? error.message : "No se pudo guardar la cotización.")
     } finally {
       setIsSavingQuotation(false)
-    }
-  }
-
-  async function shareQuote() {
-    if (!savedOrder) return
-
-    const quoteLines = savedOrder.items.map((item) => {
-      const adjustment = item.adjustment?.enabled
-        ? ` · ${item.adjustment.type === "surcharge" ? "Sobrecosto" : "Descuento"} ${item.adjustment.note || ""}: ${money(
-          item.adjustment.mode === "percent"
-            ? (item.adjustment.type === "surcharge"
-              ? (item.unitPrice ?? 0) * item.adjustment.value / 100
-              : (item.unitPrice ?? 0) * item.adjustment.value / 100)
-            : item.adjustment.value,
-        )}`
-        : ""
-      return `• ${item.garment} ${item.fit}, ${item.color}, talla ${item.size}${item.name ? ` · ${item.name}` : ""}${item.number ? ` · N.º ${item.number}` : ""}: ${money(item.netPrice ?? item.unitPrice ?? 0)}${adjustment}`
-    })
-    const quoteText = [
-      `Cotización ${savedOrder.id}`,
-      `Cliente: ${savedOrder.customer}`,
-      `Entrega pactada: ${savedOrder.dueDate}`,
-      "",
-      ...quoteLines,
-      "",
-      `Total: ${money(savedOrder.total)}`,
-      `Abono: ${money(savedOrder.paid)}`,
-      `Saldo pendiente: ${money(Math.max(savedOrder.total - savedOrder.paid, 0))}`,
-    ].join("\n")
-
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: `Cotización ${savedOrder.id}`,
-          text: quoteText,
-        })
-        toast.success("Cotización compartida.")
-        return
-      }
-
-      await navigator.clipboard.writeText(quoteText)
-      toast.success("Cotización copiada. Ya puedes pegarla en un mensaje al cliente.")
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return
-      toast.error("No se pudo compartir la cotización. Intenta copiarla desde un navegador con permisos.")
     }
   }
 
@@ -1566,10 +1533,13 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                 <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
                   <label className="space-y-2 text-sm font-medium">
                     Tipo de prenda
-                    <Select value={bulkGarment} onValueChange={(value) => value && setBulkGarment(value)}>
+                    <Select
+                      onValueChange={(value) => value && setBulkGarment(value)}
+                      value={selectedBulkGarment}
+                    >
                       <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {[...new Set(watchedGarments.map((garment) => garment.type))].map((type) => (
+                        {bulkGarmentOptions.map((type) => (
                           <SelectItem key={type} value={type}>{type}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1577,10 +1547,13 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   </label>
                   <label className="space-y-2 text-sm font-medium">
                     Horma
-                    <Select value={bulkFit} onValueChange={(value) => value && setBulkFit(value)}>
+                    <Select
+                      onValueChange={(value) => value && setBulkFit(value)}
+                      value={selectedBulkFit}
+                    >
                       <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {fits.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}
+                        {bulkFitOptions.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </label>
@@ -1900,15 +1873,12 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       <div>
                         <p className="font-medium">Pedido {savedOrder.id} guardado</p>
                         <p className="text-sm opacity-80">
-                          El desprendible está listo para descargar o compartir con el cliente.
+                          El desprendible del pedido está listo para descargar.
                         </p>
                       </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div>
                         <Button className="w-full" onClick={downloadReceipt} type="button">
                           Descargar desprendible PDF
-                        </Button>
-                        <Button className="w-full" onClick={() => void shareQuote()} type="button" variant="outline">
-                          Compartir cotización
                         </Button>
                       </div>
                       <p className="text-xs opacity-80">

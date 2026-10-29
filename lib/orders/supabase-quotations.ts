@@ -36,6 +36,8 @@ export type Quotation = {
   items: QuotationItem[]
   reference_images: string[]
   created_at: string
+  converted_order_id: string | null
+  converted_at: string | null
 }
 
 export type QuotationImage = {
@@ -45,7 +47,13 @@ export type QuotationImage = {
 
 export type NewQuotation = Omit<
   Quotation,
-  "id" | "company_id" | "quote_number" | "reference_images" | "created_at"
+  | "id"
+  | "company_id"
+  | "quote_number"
+  | "reference_images"
+  | "created_at"
+  | "converted_order_id"
+  | "converted_at"
 >
 
 const quotationImageBucket = "quotation-references"
@@ -184,4 +192,33 @@ export async function loadSupabaseQuotations(companyId: string) {
     ...quotation,
     images: images[index],
   }))
+}
+
+export async function convertSupabaseQuotationToOrder(
+  companyId: string,
+  quotationId: string,
+) {
+  const supabase = createClient()
+  const orderCode = `FS-${Date.now()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
+  const { data: orderId, error: conversionError } = await supabase.rpc(
+    "convert_quotation_to_order",
+    {
+      p_company_id: companyId,
+      p_quotation_id: quotationId,
+      p_order_code: orderCode,
+    },
+  )
+  throwOnError(conversionError)
+  if (!orderId) throw new Error("No se pudo crear el pedido desde la cotización.")
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("code")
+    .eq("company_id", companyId)
+    .eq("id", orderId)
+    .single()
+  throwOnError(orderError)
+  if (!order) throw new Error("El pedido se creó, pero no se pudo consultar su código.")
+
+  return { id: orderId, code: order.code }
 }

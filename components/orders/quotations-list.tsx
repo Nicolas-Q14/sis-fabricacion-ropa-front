@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Image from "next/image"
+import Link from "next/link"
 import { toast } from "sonner"
 import { ArrowDownToLineIcon, RefreshCwIcon, Share2Icon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -13,8 +14,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import {
+  convertSupabaseQuotationToOrder,
   loadSupabaseQuotations,
   type QuotationItem,
 } from "@/lib/orders/supabase-quotations"
@@ -180,6 +190,8 @@ export function QuotationsList() {
   const [quotations, setQuotations] = useState<LoadedQuotation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [quotationToConfirm, setQuotationToConfirm] = useState<LoadedQuotation | null>(null)
+  const [convertingQuotationId, setConvertingQuotationId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -193,6 +205,22 @@ export function QuotationsList() {
       setLoading(false)
     }
   }, [companyId])
+
+  async function confirmOrder() {
+    if (!quotationToConfirm) return
+
+    setConvertingQuotationId(quotationToConfirm.id)
+    try {
+      const order = await convertSupabaseQuotationToOrder(companyId, quotationToConfirm.id)
+      await refresh()
+      setQuotationToConfirm(null)
+      toast.success(`Pedido ${order.code} creado desde la cotización ${quotationToConfirm.quote_number}.`)
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "No se pudo confirmar el pedido.")
+    } finally {
+      setConvertingQuotationId(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -314,12 +342,61 @@ export function QuotationsList() {
                   <Button onClick={() => void shareQuotation(quotation)} type="button" variant="outline">
                     <Share2Icon data-icon="inline-start" /> Compartir
                   </Button>
+                  {quotation.converted_order_id ? (
+                    <>
+                      <Badge variant="secondary" className="h-9 px-3">
+                        Pedido confirmado
+                      </Badge>
+                      <Button render={<Link href="/dashboard/orders" />} variant="outline">
+                        Ver pedidos
+                      </Button>
+                    </>
+                  ) : (
+                    <Button onClick={() => setQuotationToConfirm(quotation)} type="button" variant="outline">
+                      Confirmar pedido
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <Dialog
+        open={Boolean(quotationToConfirm)}
+        onOpenChange={(open) => {
+          if (!open && !convertingQuotationId) setQuotationToConfirm(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar pedido</DialogTitle>
+            <DialogDescription>
+              {quotationToConfirm
+                ? `Se creará un pedido para ${quotationToConfirm.customer_name} desde la cotización ${quotationToConfirm.quote_number}. El pedido quedará pendiente de pago y reservará las prendas en la bodega principal.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              disabled={Boolean(convertingQuotationId)}
+              onClick={() => setQuotationToConfirm(null)}
+              type="button"
+              variant="outline"
+            >
+              Cancelar
+            </Button>
+            <Button
+              disabled={Boolean(convertingQuotationId)}
+              onClick={() => void confirmOrder()}
+              type="button"
+            >
+              {convertingQuotationId ? "Creando pedido…" : "Confirmar y crear pedido"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

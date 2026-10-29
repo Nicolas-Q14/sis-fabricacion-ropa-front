@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
@@ -40,22 +40,45 @@ import {
   type DemoOrder,
 } from "@/lib/orders/demo-data"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
-import { addSupabasePayment, moveSupabaseOrderItems } from "@/lib/orders/supabase-orders"
+import {
+  addSupabasePayment,
+  completeSupabaseOrderDelivery,
+  moveSupabaseOrderItems,
+} from "@/lib/orders/supabase-orders"
+import { getOrderStockShortages } from "@/lib/inventory/demo-inventory"
+import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { GarmentTraceSheet } from "@/components/orders/garment-trace-sheet"
 import { Progress } from "@/components/ui/progress"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
+type PendingDelivery = {
+  itemIds: string[]
+  successMessage: string
+}
+
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { orders, error, loading, refresh } = useDemoOrders()
+  const { inventory, error: inventoryError } = useDemoInventory()
   const operator = useOrdersOperator()
   const storedOrder = orders.find((item) => item.id === orderId) ?? null
-  const order = storedOrder
-    ? { ...storedOrder, status: getOrderStatus(storedOrder) }
-    : null
+  const order = useMemo(
+    () => storedOrder
+      ? { ...storedOrder, status: getOrderStatus(storedOrder) }
+      : null,
+    [storedOrder],
+  )
+  const stockShortages = useMemo(
+    () => order && inventory
+      ? getOrderStockShortages(orders, inventory).filter((shortage) => shortage.orderId === order.id)
+      : [],
+    [inventory, order, orders],
+  )
   const [sheetOpen, setSheetOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
   const [paymentMethod, setPaymentMethod] = useState("Efectivo")
+  const [pendingDelivery, setPendingDelivery] = useState<PendingDelivery | null>(null)
+  const [deliverySubmitting, setDeliverySubmitting] = useState(false)
 
   useEffect(() => {
     if (error) toast.error(error)
@@ -73,10 +96,15 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       }
       const itemIds = changedItems.map((item) => item.id)
       if (itemIds.some((id) => !id)) throw new Error("Una prenda no tiene identificador en Supabase.")
+      const validItemIds = itemIds.filter((id): id is string => Boolean(id))
+      if (targetPhase === 8 && order && order.total > order.paid) {
+        setPendingDelivery({ itemIds: validItemIds, successMessage })
+        return true
+      }
       await moveSupabaseOrderItems(
         operator.companyId,
         updatedOrder.id,
-        itemIds.filter((id): id is string => Boolean(id)),
+        validItemIds,
         targetPhase,
         operator.name,
       )
@@ -86,6 +114,27 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo guardar el cambio.")
       return false
+    }
+  }
+
+  async function confirmDelivery() {
+    if (!order || !pendingDelivery) return
+    setDeliverySubmitting(true)
+    try {
+      await completeSupabaseOrderDelivery(
+        operator.companyId,
+        order.id,
+        pendingDelivery.itemIds,
+        operator.name,
+        paymentMethod,
+      )
+      await refresh()
+      toast.success(`Saldo total registrado. ${pendingDelivery.successMessage}`)
+      setPendingDelivery(null)
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "No se pudo registrar el pago y entregar las prendas.")
+    } finally {
+      setDeliverySubmitting(false)
     }
   }
 
@@ -159,28 +208,92 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <Separator className="mt-4" />
         </div>
         <div className="space-y-5">
+          {stockShortages.length > 0 && (
+            <Card className="border-destructive/40">
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center gap-2">
+                  Faltantes por fabricar o adquirir
+                  <Badge variant="destructive">
+                    {stockShortages.reduce((total, shortage) => total + shortage.missing, 0)} prendas
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  Unidades de este pedido que no alcanzan a cubrirse con las existencias disponibles en la bodega asignada.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {stockShortages.map((shortage) => (
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+                    key={`${shortage.variantId}-${shortage.warehouse}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">{shortage.product}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {shortage.color} · Talla {shortage.size} · {shortage.warehouse}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {shortage.required} requeridas · {shortage.physicalStock} en existencia
+                      </p>
+                    </div>
+                    <Badge variant="destructive">
+                      Faltan {shortage.missing}
+                    </Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+          {inventoryError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+              No se pudo consultar la disponibilidad de inventario: {inventoryError}
+            </p>
+          )}
           <Card>
             <CardHeader className="flex-row items-start justify-between">
               <div className="space-y-1">
                 <CardTitle>Trazabilidad</CardTitle>
-                <CardDescription>Registro cronológico de actividad y responsables.</CardDescription>
+                <CardDescription>
+                  Movimientos de prendas agrupados por fase y acción. Despliega un grupo para consultar las prendas incluidas.
+                </CardDescription>
               </div>
-              <Badge variant="secondary">{order.timeline.length} eventos</Badge>
+              <Badge variant="secondary">{order.timeline.length} grupos</Badge>
             </CardHeader>
             <CardContent>
               <ol className="space-y-0">
                 {order.timeline.map((event, index) => (
-                  <li className="relative flex gap-4 pb-6 last:pb-0" key={`${event.date}-${event.title}`}>
+                  <li className="relative flex gap-4 pb-6 last:pb-0" key={event.id ?? `${event.timestamp ?? event.date}-${event.title}-${index}`}>
                     {index < order.timeline.length - 1 && (
                       <span aria-hidden="true" className="absolute top-3 left-[5px] h-full w-px bg-border" />
                     )}
                     <span className={`relative mt-1.5 size-3 shrink-0 rounded-full border-2 ${index === 0 ? "border-primary bg-primary" : "border-muted-foreground/40 bg-background"}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{event.title}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium">{event.title}</p>
+                        {event.quantity !== undefined && (
+                          <Badge variant="secondary">
+                            {event.quantity} {event.quantity === 1 ? "prenda" : "prendas"}
+                          </Badge>
+                        )}
+                      </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                         <time>{event.date}</time>
                         <span>{event.operator}</span>
                       </div>
+                      {event.details && event.details.length > 0 && (
+                        <details className="group mt-2 rounded-md border bg-muted/20 px-3 py-2">
+                          <summary className="cursor-pointer text-xs font-medium text-primary">
+                            Ver prendas del grupo ({event.details.length})
+                          </summary>
+                          <ul className="mt-2 space-y-1 border-t pt-2 text-xs text-muted-foreground">
+                            {event.details.map((detail, detailIndex) => (
+                              <li key={`${detail}-${detailIndex}`}>
+                                {detailIndex + 1}. {detail}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -336,6 +449,48 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <DialogFooter>
             <Button onClick={() => setPaymentOpen(false)} variant="outline">Cancelar</Button>
             <Button onClick={() => void confirmPayment()}>Guardar abono</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open && !deliverySubmitting) setPendingDelivery(null)
+        }}
+        open={pendingDelivery !== null}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Completar pago para entregar</DialogTitle>
+            <DialogDescription>
+              Para pasar estas prendas a Entregado, registra el saldo total pendiente de{" "}
+              <strong>{formatCurrency(balance)}</strong>. El pago y el cambio de fase se
+              guardarán en una sola operación.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="space-y-2 text-sm font-medium">
+            Método de pago
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              onChange={(event) => setPaymentMethod(event.target.value)}
+              value={paymentMethod}
+            >
+              {["Transferencia", "Efectivo", "Crédito"].map((method) => (
+                <option key={method}>{method}</option>
+              ))}
+            </select>
+          </label>
+          <DialogFooter>
+            <Button
+              disabled={deliverySubmitting}
+              onClick={() => setPendingDelivery(null)}
+              variant="outline"
+            >
+              Cancelar
+            </Button>
+            <Button disabled={deliverySubmitting} onClick={() => void confirmDelivery()}>
+              {deliverySubmitting ? "Procesando…" : "Registrar pago y entregar"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

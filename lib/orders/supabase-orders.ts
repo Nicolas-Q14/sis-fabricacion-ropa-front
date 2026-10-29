@@ -4,6 +4,7 @@ import {
   type DemoOrder,
   type GarmentPhaseReached,
   type OrderGarment,
+  type PhaseHistoryEvent,
 } from "@/lib/orders/demo-data"
 import { createClient } from "@/lib/supabase/client"
 
@@ -50,6 +51,7 @@ type ProductionEventRow = {
   id: string
   order_id: string
   order_item_id: string
+  previous_phase_id: number
   phase_id: number
   event_type: string
   user_id: string | null
@@ -147,6 +149,16 @@ export async function loadSupabaseOrders(companyId: string) {
     const items = (itemsByOrder.get(row.id) ?? []).map((item): OrderGarment => {
       const productionEvents = productionsByItem.get(item.id) ?? []
       const verifications = new Map<number, NonNullable<OrderGarment["production"]>["verifications"][number]>()
+      const history: PhaseHistoryEvent[] = productionEvents.map((event) => ({
+        id: event.id,
+        eventType: event.event_type === "retroceso" ? "retroceso" : "avance",
+        previousPhase: event.previous_phase_id as GarmentPhaseReached,
+        phase: event.phase_id as GarmentPhaseReached,
+        userId: event.user_id ?? "",
+        operator: event.operator_name,
+        verifiedAt: event.created_at,
+        observation: event.observation,
+      }))
       for (const event of productionEvents) {
         if (event.event_type === "avance") {
           verifications.set(event.phase_id, {
@@ -183,25 +195,69 @@ export async function loadSupabaseOrders(companyId: string) {
         production: {
           currentPhase: item.current_phase as GarmentPhaseReached,
           verifications: [...verifications.values()].sort((a, b) => a.phase - b.phase),
+          history,
         },
       }
     })
-    const timeline = [
-      ...(eventsByOrder.get(row.id) ?? []).map((event) => ({
+    const orderTimeline = (eventsByOrder.get(row.id) ?? [])
+      .filter((event) => event.event_type !== "production_phase_change")
+      .map((event) => ({
+        id: event.id,
         date: displayDate(event.created_at),
         title: event.description,
         operator: event.operator_name,
         timestamp: event.created_at,
+      }))
+    const phaseEventGroups = new Map<string, {
+      id: string
+      date: string
+      title: string
+      operator: string
+      timestamp: string
+      details: string[]
+    }>()
+    for (const item of items) {
+      const itemEvents = productionsByItem.get(item.id ?? "") ?? []
+      const itemDescription = [
+        item.garment,
+        item.color || "Azul marino",
+        `talla ${item.size || "—"}`,
+        item.name,
+        item.number ? `N.º ${item.number}` : "",
+      ].filter(Boolean).join(" · ")
+      for (const event of itemEvents) {
+        const key = [
+          event.event_type,
+          event.phase_id,
+          event.operator_name,
+          event.created_at,
+        ].join(":")
+        const phaseName = event.phase_id === 0
+          ? "Sin iniciar"
+          : garmentProductionPhases[event.phase_id - 1]?.name ?? "Fase desconocida"
+        const title = event.event_type === "retroceso"
+          ? `Prendas retrocedidas a ${phaseName}`
+          : `Prendas verificadas en ${phaseName}`
+        const group = phaseEventGroups.get(key) ?? {
+          id: key,
+          date: displayDate(event.created_at),
+          title,
+          operator: event.operator_name,
+          timestamp: event.created_at,
+          details: [],
+        }
+        group.details.push(itemDescription)
+        phaseEventGroups.set(key, group)
+      }
+    }
+    const timeline: DemoOrder["timeline"] = [
+      ...orderTimeline,
+      ...[...phaseEventGroups.values()].map((group) => ({
+        ...group,
+        quantity: group.details.length,
       })),
-      ...items.flatMap((item) => (productionsByItem.get(item.id ?? "") ?? []).map((event) => ({
-        date: displayDate(event.created_at),
-        title: event.event_type === "retroceso"
-          ? `Prenda retrocedida a ${garmentProductionPhases[event.phase_id - 1]?.name ?? "Sin iniciar"}`
-          : `Prenda verificada en ${garmentProductionPhases[event.phase_id - 1]?.name ?? "Sin iniciar"}`,
-        operator: event.operator_name,
-        timestamp: event.created_at,
-      }))),
-    ].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    ]
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 
     const order: DemoOrder = {
       id: row.code,
@@ -228,7 +284,15 @@ export async function loadSupabaseOrders(companyId: string) {
       salesperson: row.seller_name ?? "",
       note: row.note ?? "",
       items,
-      timeline: timeline.map(({ date, title, operator }) => ({ date, title, operator })),
+      timeline: timeline.map(({ id, date, title, operator, timestamp, quantity, details }) => ({
+        id,
+        date,
+        title,
+        operator,
+        timestamp,
+        quantity,
+        details,
+      })),
     }
     order.status = getOrderStatus(order)
     return order
@@ -380,6 +444,24 @@ export async function moveSupabaseOrder(
     p_order_id: orderId,
     p_target_phase: targetPhase,
     p_operator_name: operatorName,
+  })
+  throwOnError(error)
+}
+
+export async function completeSupabaseOrderDelivery(
+  companyId: string,
+  orderCode: string,
+  itemIds: string[] | null,
+  operatorName: string,
+  paymentMethod: string,
+) {
+  const supabase = createClient()
+  const orderId = await findOrderId(companyId, orderCode)
+  const { error } = await supabase.rpc("complete_order_delivery_with_payment", {
+    p_order_id: orderId,
+    p_item_ids: itemIds,
+    p_operator_name: operatorName,
+    p_payment_method: paymentMethod,
   })
   throwOnError(error)
 }

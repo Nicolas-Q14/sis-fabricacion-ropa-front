@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   DndContext,
   KeyboardSensor,
@@ -15,7 +15,14 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { CalendarDaysIcon, GripVerticalIcon, ShirtIcon } from "lucide-react"
+import {
+  CalendarDaysIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  GripVerticalIcon,
+  ShirtIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -40,6 +47,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import {
+  formatCurrency,
   formatShortDate,
   garmentProductionPhases,
   getOrderProgress,
@@ -49,7 +57,7 @@ import {
   type GarmentPhaseReached,
 } from "@/lib/orders/demo-data"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
-import { moveSupabaseOrder } from "@/lib/orders/supabase-orders"
+import { completeSupabaseOrderDelivery, moveSupabaseOrder } from "@/lib/orders/supabase-orders"
 
 const phaseColors = {
   1: {
@@ -99,10 +107,17 @@ type PendingMove = {
   targetPhase: GarmentPhaseReached
 }
 
+type PeriodMode = "week" | "month"
+
 export function ProductionBoard() {
   const { orders, error, loading, refresh } = useDemoOrders()
   const operator = useOrdersOperator()
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState("Efectivo")
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("week")
+  const [periodOffset, setPeriodOffset] = useState(0)
+  const [showUnfinishedOnly, setShowUnfinishedOnly] = useState(true)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor),
@@ -111,6 +126,17 @@ export function ProductionBoard() {
   useEffect(() => {
     if (error) toast.error(error)
   }, [error])
+
+  const period = useMemo(
+    () => getPeriodRange(periodMode, periodOffset),
+    [periodMode, periodOffset],
+  )
+  const filteredOrders = orders.filter((order) => {
+    const dueDate = order.dueDate.slice(0, 10)
+    const inPeriod = dueDate >= period.start && dueDate < period.end
+    const unfinished = order.items.some((item) => (item.production?.currentPhase ?? 0) < 8)
+    return inPeriod && (!showUnfinishedOnly || unfinished)
+  })
 
   function handleDragEnd({ active, over }: DragEndEvent) {
     if (!over) return
@@ -128,21 +154,35 @@ export function ProductionBoard() {
   }
 
   async function confirmMove() {
-    if (!pendingMove) return
+    if (!pendingMove || isSaving) return
+    setIsSaving(true)
     try {
-      await moveSupabaseOrder(
-        operator.companyId,
-        pendingMove.order.id,
-        pendingMove.targetPhase,
-        operator.name,
-      )
+      const balance = Math.max(pendingMove.order.total - pendingMove.order.paid, 0)
+      if (pendingMove.targetPhase === 8 && balance > 0) {
+        await completeSupabaseOrderDelivery(
+          operator.companyId,
+          pendingMove.order.id,
+          null,
+          operator.name,
+          paymentMethod,
+        )
+      } else {
+        await moveSupabaseOrder(
+          operator.companyId,
+          pendingMove.order.id,
+          pendingMove.targetPhase,
+          operator.name,
+        )
+      }
       await refresh()
-      toast.success(
-        `${pendingMove.order.items.length} prendas actualizadas a ${phaseName(pendingMove.targetPhase)}.`,
-      )
+      toast.success(balance > 0 && pendingMove.targetPhase === 8
+        ? `Pago total registrado y pedido ${pendingMove.order.id} entregado.`
+        : `${pendingMove.order.items.length} prendas actualizadas a ${phaseName(pendingMove.targetPhase)}.`)
       setPendingMove(null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo actualizar la fase del pedido.")
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -161,20 +201,80 @@ export function ProductionBoard() {
       >
         El avance se sincroniza con Supabase y cada verificación queda en el historial de la prenda.
       </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="production-period">Período de pedidos</label>
+          <select
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            id="production-period"
+            onChange={(event) => {
+              setPeriodMode(event.target.value as PeriodMode)
+              setPeriodOffset(0)
+            }}
+            value={periodMode}
+          >
+            <option value="week">Por semana</option>
+            <option value="month">Por mes</option>
+          </select>
+          <Button
+            aria-label="Período anterior"
+            onClick={() => setPeriodOffset((offset) => offset - 1)}
+            size="icon"
+            variant="outline"
+          >
+            <ChevronLeftIcon />
+          </Button>
+          <span aria-live="polite" className="min-w-36 text-center text-sm font-medium">
+            {period.label}
+          </span>
+          <Button
+            aria-label="Período siguiente"
+            onClick={() => setPeriodOffset((offset) => offset + 1)}
+            size="icon"
+            variant="outline"
+          >
+            <ChevronRightIcon />
+          </Button>
+          <Button onClick={() => setPeriodOffset(0)} size="sm" variant="ghost">
+            Hoy
+          </Button>
+        </div>
+        <button
+          aria-checked={showUnfinishedOnly}
+          className="flex items-center gap-2 text-sm"
+          onClick={() => setShowUnfinishedOnly((value) => !value)}
+          role="switch"
+          type="button"
+        >
+          <span
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              showUnfinishedOnly ? "bg-primary" : "bg-input"
+            }`}
+          >
+            <span className={`size-4 rounded-full bg-background shadow-sm transition-transform ${
+              showUnfinishedOnly ? "translate-x-4" : "translate-x-0.5"
+            }`} />
+          </span>
+          Solo pedidos no finalizados
+        </button>
+        <p className="w-full text-xs text-muted-foreground">
+          Filtrado por fecha de entrega · {filteredOrders.length} de {orders.length} pedidos
+        </p>
+      </div>
       {loading && <p className="text-sm text-muted-foreground">Sincronizando producción…</p>}
       <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} sensors={sensors}>
         <div className="-mx-4 overflow-x-auto px-4 pb-3 md:-mx-6 md:px-6">
           <div className="flex min-w-max items-start gap-4">
             <ProductionColumn
-              count={orders.filter((order) => getPredominantPhase(order) === 0).length}
+              count={filteredOrders.filter((order) => getPredominantPhase(order) === 0).length}
               emptyMessage="No hay pedidos sin iniciar"
               id="phase-0"
               title="Sin iniciar"
               subtitle="Pendiente de comenzar"
-              orders={orders.filter((order) => getPredominantPhase(order) === 0)}
+              orders={filteredOrders.filter((order) => getPredominantPhase(order) === 0)}
             />
             {garmentProductionPhases.map((phase) => {
-              const phaseOrders = orders.filter((order) => getPredominantPhase(order) === phase.id)
+              const phaseOrders = filteredOrders.filter((order) => getPredominantPhase(order) === phase.id)
               const colors = phaseColors[phase.id]
               return (
                 <ProductionColumn
@@ -203,23 +303,86 @@ export function ProductionBoard() {
           <DialogHeader>
             <DialogTitle>Confirmar cambio de fase</DialogTitle>
             <DialogDescription>
-              ¿Está seguro de cambiar todas las unidades del pedido{" "}
-              <strong>{pendingMove?.order.id}</strong> a{" "}
-              <strong>{pendingMove ? phaseName(pendingMove.targetPhase) : ""}</strong>?
-              Se completarán automáticamente las fases intermedias y quedarán registradas
-              en la trazabilidad de cada prenda con su usuario y fecha.
+              {pendingMove?.targetPhase === 8 &&
+              pendingMove.order.total > pendingMove.order.paid ? (
+                <>
+                  Para entregar el pedido <strong>{pendingMove.order.id}</strong>, registra el
+                  saldo total pendiente de{" "}
+                  <strong>{formatCurrency(pendingMove.order.total - pendingMove.order.paid)}</strong>.
+                  El pago y la entrega se guardarán juntos; si la entrega no puede completarse,
+                  tampoco se registrará el pago.
+                </>
+              ) : (
+                <>
+                  ¿Está seguro de cambiar todas las unidades del pedido{" "}
+                  <strong>{pendingMove?.order.id}</strong> a{" "}
+                  <strong>{pendingMove ? phaseName(pendingMove.targetPhase) : ""}</strong>?
+                  Se completarán automáticamente las fases intermedias y quedarán registradas
+                  en la trazabilidad de cada prenda con su usuario y fecha.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
+          {pendingMove?.targetPhase === 8 &&
+            pendingMove.order.total > pendingMove.order.paid && (
+              <label className="space-y-2 text-sm font-medium">
+                Método de pago
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(event) => setPaymentMethod(event.target.value)}
+                  value={paymentMethod}
+                >
+                  {["Transferencia", "Efectivo", "Crédito"].map((method) => (
+                    <option key={method}>{method}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           <DialogFooter>
-            <Button onClick={() => setPendingMove(null)} variant="outline">
+            <Button disabled={isSaving} onClick={() => setPendingMove(null)} variant="outline">
               Cancelar
             </Button>
-            <Button             onClick={() => void confirmMove()}>Sí, cambiar todas las prendas</Button>
+            <Button disabled={isSaving} onClick={() => void confirmMove()}>
+              {isSaving
+                ? "Procesando…"
+                : pendingMove?.targetPhase === 8 &&
+              pendingMove.order.total > pendingMove.order.paid
+                ? "Registrar pago y entregar"
+                : "Sí, cambiar todas las prendas"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   )
+}
+
+function getPeriodRange(mode: PeriodMode, offset: number) {
+  const today = new Date()
+  let start: Date
+  let end: Date
+
+  if (mode === "week") {
+    const mondayOffset = (today.getDay() + 6) % 7
+    start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - mondayOffset + offset * 7)
+    end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7)
+  } else {
+    start = new Date(today.getFullYear(), today.getMonth() + offset, 1)
+    end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 1)
+  }
+
+  const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1)
+  return {
+    start: localDateKey(start),
+    end: localDateKey(end),
+    label: mode === "week"
+      ? `${formatShortDate(localDateKey(start))} – ${formatShortDate(localDateKey(endDate))}`
+      : start.toLocaleDateString("es", { month: "long", year: "numeric" }),
+  }
+}
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
 function phaseName(phase: GarmentPhaseReached) {
@@ -280,6 +443,9 @@ function ProductionOrderCard({ order }: { order: DemoOrder }) {
   const predominantPhase = getPredominantPhase(order)
   const distribution = getPhaseDistributionSummary(order)
   const colors = predominantPhase ? phaseColors[predominantPhase] : null
+  const isUrgent = order.items.some((item) =>
+    (item.production?.currentPhase ?? 0) <= 7,
+  ) && isDueWithin24Hours(order.dueDate)
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: order.id,
     disabled: order.items.length === 0,
@@ -291,7 +457,11 @@ function ProductionOrderCard({ order }: { order: DemoOrder }) {
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform) }}
     >
-      <Card className={`gap-3 border-l-4 py-3 ${colors?.accent ?? "border-l-slate-300"}`}>
+      <Card className={`gap-3 border-l-4 py-3 ${
+        isUrgent
+          ? "border-destructive border-l-destructive bg-destructive/5 shadow-destructive/10"
+          : colors?.accent ?? "border-l-slate-300"
+      }`}>
         <CardHeader className="gap-2 px-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1">
@@ -326,6 +496,12 @@ function ProductionOrderCard({ order }: { order: DemoOrder }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3 px-3">
+          {isUrgent && (
+            <div className="flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1.5 text-xs font-semibold text-destructive">
+              <TriangleAlertIcon className="size-3.5" />
+              Entrega vencida o en las próximas 24 horas
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <CalendarDaysIcon className="size-3.5" />
@@ -359,4 +535,10 @@ function ProductionOrderCard({ order }: { order: DemoOrder }) {
       </Card>
     </div>
   )
+}
+
+function isDueWithin24Hours(dueDate: string) {
+  const [year, month, day] = dueDate.slice(0, 10).split("-").map(Number)
+  const deliveryDeadline = new Date(year, month - 1, day, 23, 59, 59).getTime()
+  return deliveryDeadline <= Date.now() + 24 * 60 * 60 * 1000
 }

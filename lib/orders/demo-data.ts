@@ -27,6 +27,16 @@ export type PhaseVerification = {
   operator: string
   verifiedAt: string
 }
+export type PhaseHistoryEvent = {
+  id: string
+  eventType: "avance" | "retroceso"
+  previousPhase: GarmentPhaseReached
+  phase: GarmentPhaseReached
+  userId: string
+  operator: string
+  verifiedAt: string
+  observation: string | null
+}
 export type OrderStatus = (typeof garmentProductionPhases)[number]["name"]
 export type PaymentStatus = "Pendiente" | "Abonado" | "Pagado"
 
@@ -54,6 +64,7 @@ export type OrderGarment = {
   production?: {
     currentPhase: GarmentPhaseReached
     verifications: PhaseVerification[]
+    history?: PhaseHistoryEvent[]
   }
 }
 
@@ -78,7 +89,15 @@ export type DemoOrder = {
   salesperson: string
   note: string
   items: OrderGarment[]
-  timeline: { date: string; title: string; operator: string }[]
+  timeline: {
+    id?: string
+    date: string
+    title: string
+    operator: string
+    timestamp?: string
+    quantity?: number
+    details?: string[]
+  }[]
 }
 
 export function isProductionStageId(value: string): value is ProductionStageId {

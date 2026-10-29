@@ -37,8 +37,9 @@ import {
 } from "@/components/ui/sidebar"
 import { appRoleLabels, type AppRole, type CompanyOption } from "@/lib/auth/roles"
 import { CalendarDaysIcon, SearchIcon } from "lucide-react"
+import Link from "next/link"
 import { OrdersOperatorProvider } from "@/components/orders/orders-operator-context"
-import { getLowStockVariants } from "@/lib/inventory/demo-inventory"
+import { getLowStockVariants, getOrderStockShortages } from "@/lib/inventory/demo-inventory"
 import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { getGarmentPhase, garmentProductionPhases } from "@/lib/orders/demo-data"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
@@ -164,6 +165,42 @@ function DashboardContent({
   const { orders, error: ordersError, loading: ordersLoading } = useDemoOrders()
   const { inventory, error: inventoryError } = useDemoInventory()
   const lowStock = inventory ? getLowStockVariants(inventory) : []
+  const stockShortages = useMemo(() => {
+    if (!inventory) return []
+
+    const groupedShortages = new Map<string, {
+      id: string
+      product: string
+      color: string
+      size: string
+      required: number
+      physicalStock: number
+      missing: number
+      orders: Map<string, { id: string; customer: string }>
+    }>()
+    for (const shortage of getOrderStockShortages(orders, inventory)) {
+      const grouped = groupedShortages.get(shortage.variantId) ?? {
+        id: shortage.variantId,
+        product: shortage.product,
+        color: shortage.color,
+        size: shortage.size,
+        required: 0,
+        physicalStock: shortage.physicalStock,
+        missing: 0,
+        orders: new Map(),
+      }
+      grouped.required += shortage.required
+      grouped.missing += shortage.missing
+      grouped.orders.set(shortage.orderId, {
+        id: shortage.orderId,
+        customer: shortage.customer,
+      })
+      groupedShortages.set(shortage.variantId, grouped)
+    }
+
+    return [...groupedShortages.values()]
+      .sort((left, right) => right.missing - left.missing || left.product.localeCompare(right.product, "es"))
+  }, [inventory, orders])
   const availableStatuses = [...new Set(orders.map((order) => order.status))].sort()
   const today = new Date()
   const dueSoon = new Date(today)
@@ -292,6 +329,78 @@ function DashboardContent({
                 <CardTitle className="text-3xl">{inventory ? lowStock.length : "—"}</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">Disponibles iguales o inferiores al mínimo</CardContent>
+            </Card>
+          </section>
+
+          <section aria-label="Faltantes para pedidos" id="faltantes">
+            <Card className={stockShortages.length > 0 ? "border-destructive/40" : ""}>
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center gap-2">
+                  Faltantes por fabricar o adquirir
+                  {!ordersLoading && inventory && (
+                    <Badge variant={stockShortages.length > 0 ? "destructive" : "secondary"}>
+                      {stockShortages.reduce((total, shortage) => total + shortage.missing, 0)} prendas · {stockShortages.length} variantes
+                    </Badge>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  Prendas solicitadas en pedidos activos que superan las existencias físicas. Al registrar nuevos pedidos, los faltantes aparecen aquí automáticamente.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {ordersLoading || !inventory ? (
+                  <p className="text-sm text-muted-foreground">
+                    {inventoryError ?? "Cargando pedidos e inventario…"}
+                  </p>
+                ) : stockShortages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay prendas pendientes de fabricar o adquirir para los pedidos activos.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Prenda / variante</TableHead>
+                        <TableHead>Existencia</TableHead>
+                        <TableHead>Requeridas</TableHead>
+                        <TableHead>Faltantes</TableHead>
+                        <TableHead>Pedidos relacionados</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {stockShortages.map((shortage) => (
+                        <TableRow key={shortage.id}>
+                          <TableCell>
+                            <div className="font-medium">{shortage.product}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {shortage.color} · Talla {shortage.size}
+                            </div>
+                          </TableCell>
+                          <TableCell>{shortage.physicalStock}</TableCell>
+                          <TableCell>{shortage.required}</TableCell>
+                          <TableCell>
+                            <Badge variant="destructive">{shortage.missing}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {[...shortage.orders.values()].map((order) => (
+                                <Link
+                                  className="text-primary underline-offset-4 hover:underline"
+                                  href={`/dashboard/orders/${encodeURIComponent(order.id)}`}
+                                  key={order.id}
+                                  title={order.customer}
+                                >
+                                  {order.id}
+                                </Link>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
             </Card>
           </section>
 

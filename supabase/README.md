@@ -124,13 +124,11 @@ RLS permite consultar y operar ese espacio solo a usuarios con un rol
 `company_id`.
 
 Antes de crear pedidos, configura el catálogo, la bodega principal, las
-variantes y las existencias iniciales.
-Cada prenda debe asociarse a una variante y una bodega y contar con stock libre
-antes de registrarse como pedido. El RPC de alta bloquea y valida existencias
-para crear reservas concurrentes de forma segura. La entrega de la última
-prenda ejecuta en una misma transacción el descuento de stock y el registro de
-movimientos; si falta existencia, falla también el cambio de fase. Los eventos
-de producción son append-only y el retroceso no borra verificaciones anteriores.
+variantes y las existencias iniciales. Cada prenda debe asociarse a una variante
+y una bodega válidas. La migración de faltantes permite registrar el pedido
+aunque no haya stock suficiente; la entrega sigue validando y descontando el
+inventario. Los eventos de producción son append-only y el retroceso no borra
+verificaciones anteriores.
 
 Las pantallas de pedidos, producción e inventario usan el cliente público de
 Supabase y dependen de estas políticas y RPC. Ya no buscan una empresa activa en
@@ -138,6 +136,51 @@ Supabase y dependen de estas políticas y RPC. Ya no buscan una empresa activa e
 datos antiguos de `localStorage` permanecen intactos y no se importan
 automáticamente; deben migrarse por separado y vincular cada prenda con una
 variante de inventario.
+
+## Cotizaciones
+
+Después de aplicar `migrations/20261021140000_single_company_orders_inventory.sql`,
+aplica `migrations/20261027170000_quotations_and_reference_images.sql`. Esta
+migración crea `public.quotations`, sus políticas RLS por empresa lógica y el
+bucket privado `quotation-references` con permisos para gestionar imágenes de
+referencia. No crea pedidos ni registra pagos al guardar una cotización.
+
+Para permitir confirmar una cotización como pedido, aplica después
+`migrations/20261029130000_convert_quotations_to_orders.sql`. La conversión
+crea el pedido y lo vincula a la cotización en una sola transacción; si se
+confirma dos veces, devuelve el pedido ya creado. Solo se puede convertir si las
+prendas tienen variantes activas y hay existencias disponibles en la bodega
+principal. El pedido queda pendiente de pago.
+
+Si la tabla ya se creó pero la API muestra que no la encuentra en la caché del
+esquema, ejecuta `NOTIFY pgrst, 'reload schema';` en el SQL Editor de Supabase
+y vuelve a cargar la aplicación.
+
+## Pedidos con faltantes de inventario
+
+Aplica `migrations/20261029140000_allow_orders_with_stock_shortages.sql`
+después de las migraciones de pedidos e inventario. La función de creación
+seguirá exigiendo que cada prenda corresponda a una variante y bodega válidas,
+pero ya no rechazará el pedido si no hay existencia física suficiente. Las
+prendas de pedidos activos se mantienen asociadas al inventario; el Dashboard
+compara esa demanda con las existencias y muestra automáticamente las unidades
+faltantes por variante y los pedidos afectados. Al completar o entregar pedidos
+o registrar entradas de inventario, el seguimiento se recalcula con los datos
+actuales. La entrega continúa requiriendo que el inventario pueda descontarse.
+
+## Tablero de producción y entrega
+
+Aplica `migrations/20261029150000_require_payment_before_order_delivery.sql`
+después de las migraciones de pedidos e inventario. El tablero permite recorrer
+los pedidos por semana o mes usando la fecha de entrega y filtrar los que no
+están finalizados. Resalta las tarjetas cuya entrega está vencida o dentro de
+las próximas 24 horas cuando aún están en fase 7 o anterior.
+
+Antes de pasar prendas a **Entregado**, la base de datos exige que el pedido
+esté pagado. Si queda saldo, la interfaz permite registrar el pago restante y
+entregar en una sola operación; el pago se revierte también si falla la
+validación de inventario o la entrega. El trigger protege además los cambios
+realizados fuera de la interfaz.
 
 ## Aplicación web
 
