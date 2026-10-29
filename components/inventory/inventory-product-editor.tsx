@@ -29,6 +29,7 @@ import {
 import type { InventoryProduct } from "@/lib/inventory/demo-inventory"
 import { saveSupabaseProduct, useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
+import { removeCatalogImage, uploadCatalogImage } from "@/lib/inventory/catalog-image-storage"
 
 const emptyForm = {
   sku: "",
@@ -93,7 +94,13 @@ const productFormSchema = z.object({
   }
 })
 
-export function InventoryProductEditor({ productId }: { productId?: string }) {
+export function InventoryProductEditor({
+  productId,
+  returnTo = "/dashboard/inventory",
+}: {
+  productId?: string
+  returnTo?: string
+}) {
   const { companyId } = useOrdersOperator()
   const { inventory, error } = useDemoInventory()
 
@@ -121,8 +128,8 @@ export function InventoryProductEditor({ productId }: { productId?: string }) {
     return (
       <section className="space-y-4">
         <h1 className="text-2xl font-semibold">Producto no encontrado</h1>
-        <Button nativeButton={false} render={<Link href="/dashboard/inventory" />} variant="outline">
-          Volver al inventario
+        <Button nativeButton={false} render={<Link href={returnTo} />} variant="outline">
+          Volver al catálogo
         </Button>
       </section>
     )
@@ -135,6 +142,7 @@ export function InventoryProductEditor({ productId }: { productId?: string }) {
       key={productId ?? "new-product"}
       product={product}
       productId={productId}
+      returnTo={returnTo}
     />
   )
 }
@@ -144,11 +152,13 @@ function InventoryProductForm({
   inventoryProducts,
   product,
   productId,
+  returnTo,
 }: {
   companyId: string
   inventoryProducts: InventoryProduct[]
   product: InventoryProduct | null
   productId?: string
+  returnTo: string
 }) {
   const router = useRouter()
   const { orders } = useDemoOrders()
@@ -163,6 +173,7 @@ function InventoryProductForm({
   })
   const form = useWatch({ control: formMethods.control })
   const [saving, setSaving] = useState(false)
+  const [imageFile, setImageFile] = useState<File | null>(null)
 
   function updateTaxonomy(
     field: "catalogYear" | "category" | "subcategory",
@@ -226,7 +237,8 @@ function InventoryProductForm({
       return
     }
 
-    const imageUrl = form.imageUrl.trim()
+    let uploadedImagePath: string | null = null
+    let imageUrl = form.imageUrl.trim()
     if (imageUrl) {
       try {
         const parsedUrl = new URL(imageUrl)
@@ -259,6 +271,16 @@ function InventoryProductForm({
 
     setSaving(true)
     try {
+      if (imageFile) {
+        const uploaded = await uploadCatalogImage(imageFile, {
+          year: catalogYear,
+          family: form.category,
+          subcategory: form.subcategory,
+        })
+        uploadedImagePath = uploaded.path
+        imageUrl = uploaded.publicUrl
+      }
+
       await saveSupabaseProduct(companyId, {
         id: productId ?? null,
         sku,
@@ -281,9 +303,18 @@ function InventoryProductForm({
           ? "Producto actualizado y nuevas variantes creadas con sus existencias."
           : "Producto actualizado correctamente."
         : `Producto creado con ${variants.length} variantes y ${initialStock} unidades por variante.`)
-      router.push("/dashboard/inventory")
+      router.push(returnTo)
       router.refresh()
     } catch (caught) {
+      if (uploadedImagePath) {
+        try {
+          await removeCatalogImage(uploadedImagePath)
+        } catch (cleanupError) {
+          toast.error(cleanupError instanceof Error
+            ? cleanupError.message
+            : "No se pudo limpiar la imagen que quedó sin asociar.")
+        }
+      }
       toast.error(caught instanceof Error ? caught.message : "No se pudo guardar el producto.")
     } finally {
       setSaving(false)
@@ -292,8 +323,8 @@ function InventoryProductForm({
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <Button nativeButton={false} render={<Link href="/dashboard/inventory" />} size="sm" variant="ghost">
-        <ArrowLeftIcon data-icon="inline-start" /> Volver al inventario
+      <Button nativeButton={false} render={<Link href={returnTo} />} size="sm" variant="ghost">
+        <ArrowLeftIcon data-icon="inline-start" /> Volver al catálogo
       </Button>
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">Inventario / Catálogo</p>
@@ -400,6 +431,17 @@ function InventoryProductForm({
             </Field>
             <Field label="URL de imagen">
               <Input type="url" {...formMethods.register("imageUrl")} />
+            </Field>
+            <Field label="O subir imagen al Storage">
+              <Input
+                accept="image/jpeg,image/png,image/webp,image/avif"
+                onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+                type="file"
+              />
+              <p className="text-xs text-muted-foreground">
+                JPG, PNG, WebP o AVIF · máximo 5 MB
+                {imageFile ? ` · ${imageFile.name}` : ""}
+              </p>
             </Field>
             {productId && (
               <div className="rounded-md border bg-muted/30 p-3 text-sm sm:col-span-2">

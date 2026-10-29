@@ -36,6 +36,7 @@ export type Quotation = {
   items: QuotationItem[]
   reference_images: string[]
   created_at: string
+  deleted_at: string | null
   converted_order_id: string | null
   converted_at: string | null
 }
@@ -52,6 +53,7 @@ export type NewQuotation = Omit<
   | "quote_number"
   | "reference_images"
   | "created_at"
+  | "deleted_at"
   | "converted_order_id"
   | "converted_at"
 >
@@ -175,23 +177,162 @@ export async function createSupabaseQuotation(
   }
 }
 
-export async function loadSupabaseQuotations(companyId: string) {
+async function purgeExpiredQuotations(companyId: string) {
   const supabase = createClient()
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
   const { data, error } = await supabase
+    .from("quotations")
+    .select("id, reference_images, converted_order_id")
+    .eq("company_id", companyId)
+    .not("deleted_at", "is", null)
+    .lt("deleted_at", cutoff)
+  throwOnError(error)
+
+  const expired = (data ?? []) as {
+    id: string
+    reference_images: string[]
+    converted_order_id: string | null
+  }[]
+  const linkedOrderIds = expired
+    .map((quotation) => quotation.converted_order_id)
+    .filter((id): id is string => id !== null)
+  const { data: deletedOrders, error: deletedOrdersError } = linkedOrderIds.length > 0
+    ? await supabase
+      .from("orders")
+      .select("id")
+      .eq("company_id", companyId)
+      .in("id", linkedOrderIds)
+      .not("deleted_at", "is", null)
+    : { data: [], error: null }
+  throwOnError(deletedOrdersError)
+  const deletedOrderIds = new Set((deletedOrders ?? []).map((order) => order.id))
+  const deletable = expired.filter((quotation) =>
+    quotation.converted_order_id === null
+    || deletedOrderIds.has(quotation.converted_order_id),
+  )
+  const paths = deletable.flatMap((quotation) => quotation.reference_images ?? [])
+  if (paths.length > 0) {
+    const { error: storageError } = await supabase.storage
+      .from(quotationImageBucket)
+      .remove(paths)
+    throwOnError(storageError)
+  }
+  if (deletable.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("quotations")
+      .delete()
+      .eq("company_id", companyId)
+      .in("id", deletable.map((quotation) => quotation.id))
+    throwOnError(deleteError)
+  }
+}
+
+export async function loadSupabaseQuotations(
+  companyId: string,
+  view: "active" | "trash" = "active",
+) {
+  await purgeExpiredQuotations(companyId)
+  const supabase = createClient()
+  let query = supabase
     .from("quotations")
     .select("*")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
+  query = view === "trash"
+    ? query.not("deleted_at", "is", null)
+    : query.is("deleted_at", null)
+  const { data, error } = await query
   throwOnError(error)
 
   const quotations = (data ?? []) as Quotation[]
-  const images = await Promise.all(quotations.map((quotation) =>
-    signQuotationImages(quotation.reference_images ?? []),
-  ))
+  const convertedOrderIds = quotations
+    .map((quotation) => quotation.converted_order_id)
+    .filter((id): id is string => id !== null)
+  const [{ data: orderData, error: orderError }, images] = await Promise.all([
+    convertedOrderIds.length > 0
+      ? supabase
+        .from("orders")
+        .select("id, deleted_at")
+        .eq("company_id", companyId)
+        .in("id", convertedOrderIds)
+      : Promise.resolve({ data: [], error: null }),
+    Promise.all(quotations.map((quotation) =>
+      signQuotationImages(quotation.reference_images ?? []),
+    )),
+  ])
+  throwOnError(orderError)
+  const deletedOrderIds = new Set(
+    (orderData ?? [])
+      .filter((order) => order.deleted_at !== null)
+      .map((order) => order.id),
+  )
   return quotations.map((quotation, index) => ({
     ...quotation,
     images: images[index],
+    convertedOrderDeleted: quotation.converted_order_id !== null
+      && deletedOrderIds.has(quotation.converted_order_id),
   }))
+}
+
+export async function moveSupabaseQuotationToTrash(companyId: string, quotationId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("quotations")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("company_id", companyId)
+    .eq("id", quotationId)
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle()
+  throwOnError(error)
+  if (!data) throw new Error("La cotización ya está en la papelera o está vinculada a un pedido activo.")
+}
+
+export async function restoreSupabaseQuotation(companyId: string, quotationId: string) {
+  const supabase = createClient()
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const { data, error } = await supabase
+    .from("quotations")
+    .update({ deleted_at: null })
+    .eq("company_id", companyId)
+    .eq("id", quotationId)
+    .not("deleted_at", "is", null)
+    .gte("deleted_at", cutoff)
+    .select("id")
+    .maybeSingle()
+  throwOnError(error)
+  if (!data) throw new Error("No se pudo restaurar la cotización; puede haber vencido o estar asociada a un pedido.")
+}
+
+export async function permanentlyDeleteSupabaseQuotation(companyId: string, quotationId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("quotations")
+    .select("reference_images")
+    .eq("company_id", companyId)
+    .eq("id", quotationId)
+    .not("deleted_at", "is", null)
+    .maybeSingle()
+  throwOnError(error)
+  if (!data) throw new Error("No se encontró una cotización eliminable en la papelera o su pedido sigue activo.")
+
+  const paths = (data.reference_images ?? []) as string[]
+  if (paths.length > 0) {
+    const { error: storageError } = await supabase.storage
+      .from(quotationImageBucket)
+      .remove(paths)
+    throwOnError(storageError)
+  }
+  const { data: deleted, error: deleteError } = await supabase
+    .from("quotations")
+    .delete()
+    .eq("company_id", companyId)
+    .eq("id", quotationId)
+    .not("deleted_at", "is", null)
+    .select("id")
+    .maybeSingle()
+  throwOnError(deleteError)
+  if (!deleted) throw new Error("No se pudo eliminar permanentemente la cotización; verifica si su pedido sigue activo.")
 }
 
 export async function convertSupabaseQuotationToOrder(

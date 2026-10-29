@@ -1,10 +1,18 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { toast } from "sonner"
-import { ArrowDownToLineIcon, RefreshCwIcon, Share2Icon } from "lucide-react"
+import {
+  ArrowDownToLineIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  MessageCircleIcon,
+  RefreshCwIcon,
+  RotateCcwIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,10 +30,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import {
   convertSupabaseQuotationToOrder,
   loadSupabaseQuotations,
+  moveSupabaseQuotationToTrash,
+  permanentlyDeleteSupabaseQuotation,
+  restoreSupabaseQuotation,
   type QuotationItem,
 } from "@/lib/orders/supabase-quotations"
 
@@ -168,21 +180,38 @@ function printQuotation(quotation: LoadedQuotation) {
   window.setTimeout(printOnce, 5000)
 }
 
-async function shareQuotation(quotation: LoadedQuotation) {
-  const text = quoteDescription(quotation)
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: `Cotización ${quotation.quote_number}`, text })
-      toast.success("Cotización compartida.")
-      return
-    }
+type PeriodMode = "week" | "month"
+type QuotationAction = "trash" | "restore" | "delete"
 
-    await navigator.clipboard.writeText(text)
-    toast.success("Cotización copiada con los enlaces de sus imágenes.")
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return
-    toast.error("No se pudo compartir la cotización. Intenta copiarla desde un navegador con permisos.")
+function getQuotationPeriod(mode: PeriodMode, offset: number) {
+  const today = new Date()
+  let start: Date
+  let end: Date
+  if (mode === "week") {
+    const mondayOffset = (today.getDay() + 6) % 7
+    start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - mondayOffset + offset * 7)
+    end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7)
+  } else {
+    start = new Date(today.getFullYear(), today.getMonth() + offset, 1)
+    end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 1)
   }
+  const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1)
+  return {
+    start: localDateKey(start),
+    end: localDateKey(end),
+    label: mode === "week"
+      ? `${formatDate(localDateKey(start))} – ${formatDate(localDateKey(endDate))}`
+      : start.toLocaleDateString("es", { month: "long", year: "numeric" }),
+  }
+}
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+function expirationDate(deletedAt: string) {
+  const expiresAt = new Date(new Date(deletedAt).getTime() + 30 * 24 * 60 * 60 * 1000)
+  return new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric" }).format(expiresAt)
 }
 
 export function QuotationsList() {
@@ -192,11 +221,24 @@ export function QuotationsList() {
   const [error, setError] = useState<string | null>(null)
   const [quotationToConfirm, setQuotationToConfirm] = useState<LoadedQuotation | null>(null)
   const [convertingQuotationId, setConvertingQuotationId] = useState<string | null>(null)
+  const [view, setView] = useState<"active" | "trash">("active")
+  const [periodMode, setPeriodMode] = useState<PeriodMode>("week")
+  const [periodOffset, setPeriodOffset] = useState(0)
+  const [pendingAction, setPendingAction] = useState<{
+    quotation: LoadedQuotation
+    action: QuotationAction
+  } | null>(null)
+  const [actionInProgress, setActionInProgress] = useState(false)
+  const period = useMemo(() => getQuotationPeriod(periodMode, periodOffset), [periodMode, periodOffset])
+  const visibleQuotations = quotations.filter((quotation) => {
+    const date = quotation.created_at.slice(0, 10)
+    return date >= period.start && date < period.end
+  })
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await loadSupabaseQuotations(companyId)
+      const data = await loadSupabaseQuotations(companyId, view)
       setQuotations(data)
       setError(null)
     } catch (caught) {
@@ -204,7 +246,30 @@ export function QuotationsList() {
     } finally {
       setLoading(false)
     }
-  }, [companyId])
+  }, [companyId, view])
+
+  async function performQuotationAction() {
+    if (!pendingAction || actionInProgress) return
+    setActionInProgress(true)
+    try {
+      if (pendingAction.action === "trash") {
+        await moveSupabaseQuotationToTrash(companyId, pendingAction.quotation.id)
+        toast.success(`Cotización ${pendingAction.quotation.quote_number} enviada a la papelera.`)
+      } else if (pendingAction.action === "restore") {
+        await restoreSupabaseQuotation(companyId, pendingAction.quotation.id)
+        toast.success(`Cotización ${pendingAction.quotation.quote_number} restaurada.`)
+      } else {
+        await permanentlyDeleteSupabaseQuotation(companyId, pendingAction.quotation.id)
+        toast.success(`Cotización ${pendingAction.quotation.quote_number} eliminada permanentemente.`)
+      }
+      setPendingAction(null)
+      await refresh()
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "No se pudo actualizar la cotización.")
+    } finally {
+      setActionInProgress(false)
+    }
+  }
 
   async function confirmOrder() {
     if (!quotationToConfirm) return
@@ -224,7 +289,7 @@ export function QuotationsList() {
 
   useEffect(() => {
     let cancelled = false
-    void loadSupabaseQuotations(companyId).then((data) => {
+    void loadSupabaseQuotations(companyId, view).then((data) => {
       if (cancelled) return
       setQuotations(data)
       setError(null)
@@ -238,7 +303,7 @@ export function QuotationsList() {
     return () => {
       cancelled = true
     }
-  }, [companyId])
+  }, [companyId, view])
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
@@ -246,7 +311,7 @@ export function QuotationsList() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Cotizaciones</h1>
           <p className="text-sm text-muted-foreground">
-            Cotizaciones guardadas con sus prendas e imágenes de referencia.
+            Filtra por fecha, comparte por WhatsApp y administra las cotizaciones guardadas.
           </p>
         </div>
         <Button
@@ -259,6 +324,67 @@ export function QuotationsList() {
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => setView("active")}
+            type="button"
+            variant={view === "active" ? "default" : "outline"}
+          >
+            Cotizaciones
+          </Button>
+          <Button
+            onClick={() => setView("trash")}
+            type="button"
+            variant={view === "trash" ? "default" : "outline"}
+          >
+            <Trash2Icon data-icon="inline-start" /> Papelera
+          </Button>
+          <label className="sr-only" htmlFor="quotation-period">Período de cotizaciones</label>
+          <select
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            id="quotation-period"
+            onChange={(event) => {
+              setPeriodMode(event.target.value as PeriodMode)
+              setPeriodOffset(0)
+            }}
+            value={periodMode}
+          >
+            <option value="week">Por semana</option>
+            <option value="month">Por mes</option>
+          </select>
+          <Button
+            aria-label="Período anterior"
+            onClick={() => setPeriodOffset((offset) => offset - 1)}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <ChevronLeftIcon />
+          </Button>
+          <span aria-live="polite" className="min-w-36 text-center text-sm font-medium">
+            {period.label}
+          </span>
+          <Button
+            aria-label="Período siguiente"
+            onClick={() => setPeriodOffset((offset) => offset + 1)}
+            size="icon"
+            type="button"
+            variant="outline"
+          >
+            <ChevronRightIcon />
+          </Button>
+          <Button onClick={() => setPeriodOffset(0)} size="sm" type="button" variant="ghost">
+            Hoy
+          </Button>
+        </div>
+        {view === "trash" && (
+          <p className="text-xs text-muted-foreground">
+            Las cotizaciones se eliminan automáticamente tras 30 días en la papelera.
+          </p>
+        )}
+      </div>
+
       {error && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
           No se pudieron cargar las cotizaciones: {error}
@@ -266,15 +392,17 @@ export function QuotationsList() {
       )}
       {loading ? (
         <p className="text-sm text-muted-foreground">Cargando cotizaciones…</p>
-      ) : quotations.length === 0 ? (
+      ) : visibleQuotations.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Aún no hay cotizaciones guardadas.
+            {view === "trash"
+              ? "No hay cotizaciones en la papelera durante este período."
+              : "No hay cotizaciones para este período."}
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4">
-          {quotations.map((quotation) => (
+          {visibleQuotations.map((quotation) => (
             <Card key={quotation.id}>
               <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -336,25 +464,92 @@ export function QuotationsList() {
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => printQuotation(quotation)} type="button">
-                    <ArrowDownToLineIcon data-icon="inline-start" /> Descargar / imprimir PDF
-                  </Button>
-                  <Button onClick={() => void shareQuotation(quotation)} type="button" variant="outline">
-                    <Share2Icon data-icon="inline-start" /> Compartir
-                  </Button>
-                  {quotation.converted_order_id ? (
+                  {view === "active" ? (
                     <>
-                      <Badge variant="secondary" className="h-9 px-3">
-                        Pedido confirmado
-                      </Badge>
-                      <Button render={<Link href="/dashboard/orders" />} variant="outline">
-                        Ver pedidos
+                      <Button onClick={() => printQuotation(quotation)} type="button">
+                        <ArrowDownToLineIcon data-icon="inline-start" /> Descargar / imprimir PDF
                       </Button>
+                      <Button
+                        nativeButton={false}
+                        render={
+                          <a
+                            href={getWhatsAppWebUrl(quoteDescription(quotation))}
+                            rel="noreferrer"
+                            target="_blank"
+                          />
+                        }
+                        variant="outline"
+                      >
+                        <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp
+                      </Button>
+                      {quotation.converted_order_id && !quotation.convertedOrderDeleted ? (
+                        <>
+                          <Badge variant="secondary" className="h-9 px-3">
+                            Pedido confirmado
+                          </Badge>
+                          <Button
+                            nativeButton={false}
+                            render={<Link href="/dashboard/orders" />}
+                            variant="outline"
+                          >
+                            Ver pedidos
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button onClick={() => setQuotationToConfirm(quotation)} type="button" variant="outline">
+                            Confirmar pedido
+                          </Button>
+                          <Button
+                            onClick={() => setPendingAction({ quotation, action: "trash" })}
+                            type="button"
+                            variant="destructive"
+                          >
+                            <Trash2Icon data-icon="inline-start" /> Papelera
+                          </Button>
+                        </>
+                      )}
+                      {quotation.convertedOrderDeleted && (
+                        <>
+                          <Badge variant="outline" className="h-9 px-3">
+                            Pedido en papelera
+                          </Badge>
+                          <Button
+                            onClick={() => setPendingAction({ quotation, action: "trash" })}
+                            type="button"
+                            variant="destructive"
+                          >
+                            <Trash2Icon data-icon="inline-start" /> Papelera
+                          </Button>
+                        </>
+                      )}
                     </>
                   ) : (
-                    <Button onClick={() => setQuotationToConfirm(quotation)} type="button" variant="outline">
-                      Confirmar pedido
-                    </Button>
+                    <>
+                      <Badge variant="outline" className="h-9 px-3">
+                        Vence {quotation.deleted_at ? expirationDate(quotation.deleted_at) : ""}
+                      </Badge>
+                      {quotation.convertedOrderDeleted ? (
+                        <Badge variant="outline" className="h-9 px-3">
+                          Restaura primero el pedido para recuperar esta cotización
+                        </Badge>
+                      ) : (
+                        <Button
+                          onClick={() => setPendingAction({ quotation, action: "restore" })}
+                          type="button"
+                          variant="outline"
+                        >
+                          <RotateCcwIcon data-icon="inline-start" /> Restaurar
+                        </Button>
+                      )}
+                      <Button
+                        onClick={() => setPendingAction({ quotation, action: "delete" })}
+                        type="button"
+                        variant="destructive"
+                      >
+                        <Trash2Icon data-icon="inline-start" /> Eliminar permanentemente
+                      </Button>
+                    </>
                   )}
                 </div>
               </CardContent>
@@ -393,6 +588,55 @@ export function QuotationsList() {
               type="button"
             >
               {convertingQuotationId ? "Creando pedido…" : "Confirmar y crear pedido"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(pendingAction)}
+        onOpenChange={(open) => {
+          if (!open && !actionInProgress) setPendingAction(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {pendingAction?.action === "trash"
+                ? "Enviar cotización a la papelera"
+                : pendingAction?.action === "restore"
+                  ? "Restaurar cotización"
+                  : "Eliminar cotización permanentemente"}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingAction?.action === "trash"
+                ? `La cotización ${pendingAction.quotation.quote_number} se conservará durante 30 días y podrás restaurarla.`
+                : pendingAction?.action === "restore"
+                  ? `La cotización ${pendingAction.quotation.quote_number} volverá al listado activo.`
+                  : `Se eliminará definitivamente la cotización ${pendingAction?.quotation.quote_number} y sus imágenes. Esta acción no se puede deshacer.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              disabled={actionInProgress}
+              onClick={() => setPendingAction(null)}
+              type="button"
+              variant="outline"
+            >
+              Cancelar
+            </Button>
+            <Button
+              disabled={actionInProgress}
+              onClick={() => void performQuotationAction()}
+              type="button"
+              variant={pendingAction?.action === "delete" ? "destructive" : "default"}
+            >
+              {actionInProgress
+                ? "Procesando…"
+                : pendingAction?.action === "trash"
+                  ? "Mover a papelera"
+                  : pendingAction?.action === "restore"
+                    ? "Restaurar"
+                    : "Eliminar permanentemente"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import {
   ArrowLeftIcon,
   CreditCardIcon,
+  MessageCircleIcon,
   PrinterIcon,
   ShirtIcon,
 } from "lucide-react"
@@ -50,6 +51,7 @@ import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { GarmentTraceSheet } from "@/components/orders/garment-trace-sheet"
 import { Progress } from "@/components/ui/progress"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
+import { getOrderShareMessage, getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
 
 type PendingDelivery = {
   itemIds: string[]
@@ -191,6 +193,19 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
+            nativeButton={false}
+            render={
+              <a
+                href={getWhatsAppWebUrl(getOrderShareMessage(order))}
+                rel="noreferrer"
+                target="_blank"
+              />
+            }
+            variant="outline"
+          >
+            <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp
+          </Button>
+          <Button
             onClick={() => window.print()}
             variant="outline"
           >
@@ -331,6 +346,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               <CardDescription>Valores registrados para este pedido.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {(order.discountAmount ?? 0) > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Descuento general</span>
+                  <span className="font-medium tabular-nums">−{formatCurrency(order.discountAmount ?? 0)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Total</span>
                 <span className="font-medium tabular-nums">{formatCurrency(order.total)}</span>

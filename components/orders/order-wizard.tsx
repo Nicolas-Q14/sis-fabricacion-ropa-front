@@ -16,6 +16,7 @@ import {
   HouseIcon,
   ImagePlusIcon,
   ListIcon,
+  MessageCircleIcon,
   PlusIcon,
   SearchIcon,
   Settings2Icon,
@@ -68,6 +69,7 @@ import {
   type QuotationItem,
 } from "@/lib/orders/supabase-quotations"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
+import { getOrderShareMessage, getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
 
 const priceAdjustmentSchema = z.object({
   type: z.enum(["surcharge", "discount"]),
@@ -96,6 +98,8 @@ const orderSchema = z.object({
   entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
   dueDate: z.string().min(1, "Selecciona la fecha pactada."),
   salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
+  globalDiscountMode: z.enum(["fixed", "percent"]),
+  globalDiscountValue: z.number().min(0, "El descuento no puede ser negativo."),
   garments: z.array(z.object({
     type: z.string().min(1, "Selecciona una prenda."),
     fit: z.string().min(1, "Selecciona una horma."),
@@ -109,7 +113,7 @@ const orderSchema = z.object({
   message: "La fecha de entrega debe ser igual o posterior al ingreso.",
   path: ["dueDate"],
 }).superRefine((values, context) => {
-  const totals = calculateTotals(values.items)
+  const totals = calculateTotals(values.items, values.globalDiscountMode, values.globalDiscountValue)
   if (values.items.some((item) => item.adjustment.enabled
     && item.adjustment.type === "discount"
     && item.adjustment.mode === "percent"
@@ -118,6 +122,21 @@ const orderSchema = z.object({
       code: "custom",
       message: "El descuento porcentual no puede superar el 100%.",
       path: ["items"],
+    })
+  }
+
+  if (values.globalDiscountMode === "percent" && values.globalDiscountValue > 100) {
+    context.addIssue({
+      code: "custom",
+      message: "El descuento general porcentual no puede superar el 100%.",
+      path: ["globalDiscountValue"],
+    })
+  }
+  if (values.globalDiscountMode === "fixed" && values.globalDiscountValue > totals.subtotal + totals.surcharges - totals.itemDiscounts) {
+    context.addIssue({
+      code: "custom",
+      message: "El descuento general no puede superar el neto de las prendas.",
+      path: ["globalDiscountValue"],
     })
   }
 
@@ -175,6 +194,8 @@ const quotationFormSchema = z.object({
   entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
   dueDate: z.string().min(1, "Selecciona la fecha pactada."),
   salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
+  globalDiscountMode: z.enum(["fixed", "percent"]),
+  globalDiscountValue: z.number().min(0, "El descuento no puede ser negativo."),
   garments: z.array(z.object({
     type: z.string().min(1, "Selecciona una prenda."),
     fit: z.string().min(1, "Selecciona una horma."),
@@ -185,6 +206,7 @@ const quotationFormSchema = z.object({
   message: "La fecha de entrega debe ser igual o posterior al ingreso.",
   path: ["dueDate"],
 }).superRefine((values, context) => {
+  const totals = calculateTotals(values.items, values.globalDiscountMode, values.globalDiscountValue)
   if (values.items.some((item) => item.adjustment.enabled
     && item.adjustment.type === "discount"
     && item.adjustment.mode === "percent"
@@ -206,6 +228,20 @@ const quotationFormSchema = z.object({
       path: ["items"],
     })
   }
+  if (values.globalDiscountMode === "percent" && values.globalDiscountValue > 100) {
+    context.addIssue({
+      code: "custom",
+      message: "El descuento general porcentual no puede superar el 100%.",
+      path: ["globalDiscountValue"],
+    })
+  }
+  if (values.globalDiscountMode === "fixed" && values.globalDiscountValue > totals.subtotal + totals.surcharges - totals.itemDiscounts) {
+    context.addIssue({
+      code: "custom",
+      message: "El descuento general no puede superar el neto de las prendas.",
+      path: ["globalDiscountValue"],
+    })
+  }
 })
 
 type OrderFormValues = z.infer<typeof orderSchema>
@@ -219,6 +255,7 @@ type SavedQuotation = {
   dueDate: string
   quantity: number
   total: number
+  discountAmount: number
   items: QuotationItem[]
   images: QuotationImage[]
 }
@@ -267,15 +304,26 @@ function discountFor(item: FormItem) {
     : item.adjustment.value
 }
 
-function calculateTotals(items: FormItem[]) {
+function calculateTotals(
+  items: FormItem[],
+  globalDiscountMode: "fixed" | "percent" = "fixed",
+  globalDiscountValue = 0,
+) {
   const subtotal = items.reduce((total, item) => total + item.unitPrice, 0)
   const surcharges = items.reduce((total, item) => total + surchargeFor(item), 0)
-  const discounts = items.reduce((total, item) => total + discountFor(item), 0)
+  const itemDiscounts = items.reduce((total, item) => total + discountFor(item), 0)
+  const itemNet = Math.max(0, subtotal + surcharges - itemDiscounts)
+  const globalDiscount = globalDiscountMode === "percent"
+    ? itemNet * globalDiscountValue / 100
+    : globalDiscountValue
+  const discounts = itemDiscounts + globalDiscount
   return {
     subtotal,
     surcharges,
+    itemDiscounts,
+    globalDiscount,
     discounts,
-    grandTotal: Math.max(0, subtotal + surcharges - discounts),
+    grandTotal: Math.max(0, itemNet - globalDiscount),
   }
 }
 
@@ -335,9 +383,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const [referenceImages, setReferenceImages] = useState<File[]>([])
   const [isSavingQuotation, setIsSavingQuotation] = useState(false)
   const referenceImageInput = useRef<HTMLInputElement>(null)
+  const orderSubmissionInProgress = useRef(false)
+  const quotationSubmissionInProgress = useRef(false)
   const [isCustomSalesperson, setIsCustomSalesperson] = useState(false)
-  const [openGarmentTypeIndex, setOpenGarmentTypeIndex] = useState<number | null>(null)
-  const [garmentTypeSearch, setGarmentTypeSearch] = useState("")
   const [sizeBatchGarmentPickerOpen, setSizeBatchGarmentPickerOpen] = useState(false)
   const [sizeBatchGarmentSearch, setSizeBatchGarmentSearch] = useState("")
   const [bulkGarment, setBulkGarment] = useState("")
@@ -348,18 +396,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const [sizeBatchColor, setSizeBatchColor] = useState(defaultColors[0])
   const [sizeBatchSize, setSizeBatchSize] = useState("")
   const [sizeBatchQuantity, setSizeBatchQuantity] = useState("1")
-  const { companyId } = useOrdersOperator()
+  const operator = useOrdersOperator()
+  const { companyId } = operator
+  const canChooseSalesperson = operator.role === "admin" || operator.role === "superadmin"
   const { inventory, error: inventoryError } = useDemoInventory()
   const { refresh: refreshOrders } = useDemoOrders()
   const garmentTypes = [...new Set([
     ...defaultGarmentTypes,
     ...(inventory?.products.map((product) => product.name) ?? []),
   ])]
-  const visibleGarmentTypes = garmentTypeSearch.trim()
-    ? garmentTypes.filter((type) =>
-        type.toLocaleLowerCase("es").includes(garmentTypeSearch.trim().toLocaleLowerCase("es")),
-      )
-    : defaultGarmentTypes
   const visibleSizeBatchGarmentTypes = sizeBatchGarmentSearch.trim()
     ? garmentTypes.filter((type) =>
         type.toLocaleLowerCase("es").includes(sizeBatchGarmentSearch.trim().toLocaleLowerCase("es")),
@@ -380,9 +425,11 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       note: "",
       entryDate: today(),
       dueDate: "",
-      salesperson: "",
-      garments: [{ type: "Camiseta", fit: "Hombre", quantity: 1 }],
-      items: [defaultItem("Camiseta", "Hombre")],
+      salesperson: canChooseSalesperson ? "" : operator.name,
+      globalDiscountMode: "fixed",
+      globalDiscountValue: 0,
+      garments: [],
+      items: [],
       paymentStatus: "Pendiente",
       paid: 0,
       paymentMethod: "",
@@ -393,6 +440,8 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const watchedGarments = useWatch({ control: form.control, name: "garments" })
   const watchedItems = useWatch({ control: form.control, name: "items" })
   const watchedEntryDate = useWatch({ control: form.control, name: "entryDate" })
+  const watchedGlobalDiscountMode = useWatch({ control: form.control, name: "globalDiscountMode" })
+  const watchedGlobalDiscountValue = useWatch({ control: form.control, name: "globalDiscountValue" })
   const watchedPaymentStatus = useWatch({ control: form.control, name: "paymentStatus" })
   const watchedPaymentMethod = useWatch({ control: form.control, name: "paymentMethod" })
   const watchedPaid = useWatch({ control: form.control, name: "paid" })
@@ -437,7 +486,27 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   const selectedSizeBatchSize = sizeBatchSizes.includes(sizeBatchSize)
     ? sizeBatchSize
     : ""
-  const totals = calculateTotals(watchedItems)
+  const selectedSizeBatchCount = watchedItems.filter((item) =>
+    item.garment === sizeBatchGarment
+    && item.fit === sizeBatchFit
+    && item.color === selectedSizeBatchColor
+    && item.size === selectedSizeBatchSize,
+  ).length
+  const sizeBatchVariant = sizeBatchProduct?.variants.find((variant) =>
+    variant.color === selectedSizeBatchColor && variant.size === selectedSizeBatchSize,
+  )
+  const mainWarehouse = inventory?.warehouses?.find((warehouse) => warehouse.name === "Bodega principal")
+  const reservedBatchStock = sizeBatchVariant && mainWarehouse
+    ? inventory?.reservedByVariantWarehouse?.[sizeBatchVariant.id]?.[mainWarehouse.id] ?? 0
+    : 0
+  const availableBatchStock = sizeBatchVariant && mainWarehouse
+    ? Math.max(0, (sizeBatchVariant.stockByWarehouse[mainWarehouse.name] ?? 0) - reservedBatchStock)
+    : null
+  const requestedBatchQuantity = Number(sizeBatchQuantity)
+  const batchShortage = availableBatchStock === null
+    ? 0
+    : Math.max(0, requestedBatchQuantity - availableBatchStock)
+  const totals = calculateTotals(watchedItems, watchedGlobalDiscountMode, watchedGlobalDiscountValue)
   const balance = Math.max(0, totals.grandTotal - (watchedPaid || 0))
 
   useEffect(() => {
@@ -452,7 +521,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       ? ["customer", "note", "entryDate", "dueDate", "salesperson"] as const
       : step === 1
         ? ["garments", "items"] as const
-        : ["items", "paid", "paymentStatus", "paymentMethod"] as const
+        : ["items", "globalDiscountMode", "globalDiscountValue", "paid", "paymentStatus", "paymentMethod"] as const
     const valid = await form.trigger(fields)
     if (!valid) return
 
@@ -500,24 +569,6 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }
 
     items.remove(index)
-  }
-
-  function synchronizeMatrix() {
-    const currentItems = form.getValues("items")
-    const itemsByCategory = new Map<string, FormItem[]>()
-    for (const item of currentItems) {
-      const key = `${item.garment}:${item.fit}`
-      itemsByCategory.set(key, [...(itemsByCategory.get(key) ?? []), item])
-    }
-    const synchronizedItems = form.getValues("garments").flatMap((garment) => {
-      const key = `${garment.type}:${garment.fit}`
-      const existing = itemsByCategory.get(key) ?? []
-      return Array.from({ length: garment.quantity }, (_, index) =>
-        existing[index] ?? defaultItem(garment.type, garment.fit),
-      )
-    })
-    items.replace(synchronizedItems)
-    toast.success(`Matriz sincronizada: ${synchronizedItems.length} filas.`)
   }
 
   function addSizeBatch() {
@@ -585,6 +636,42 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     toast.success(`Lote cargado: ${quantity} prendas talla ${selectedSizeBatchSize}.`)
   }
 
+  function removeSizeBatch() {
+    if (selectedSizeBatchCount === 0) {
+      toast.error("No hay prendas que coincidan con el lote seleccionado.")
+      return
+    }
+
+    const itemsToRemove = form.getValues("items")
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) =>
+        item.garment === sizeBatchGarment
+        && item.fit === sizeBatchFit
+        && item.color === selectedSizeBatchColor
+        && item.size === selectedSizeBatchSize,
+      )
+    const garmentIndex = form.getValues("garments").findIndex(
+      (garment) => garment.type === sizeBatchGarment && garment.fit === sizeBatchFit,
+    )
+    if (garmentIndex < 0) {
+      toast.error("No se encontró el grupo de prendas asociado al lote.")
+      return
+    }
+
+    items.remove(itemsToRemove.map(({ index }) => index))
+    const garment = form.getValues(`garments.${garmentIndex}`)
+    if (garment.quantity === itemsToRemove.length) {
+      garments.remove(garmentIndex)
+    } else {
+      form.setValue(
+        `garments.${garmentIndex}.quantity`,
+        garment.quantity - itemsToRemove.length,
+        { shouldDirty: true, shouldValidate: true },
+      )
+    }
+    toast.success(`Lote eliminado: ${itemsToRemove.length} prendas ${selectedSizeBatchSize}.`)
+  }
+
   function applyBulkPrice() {
     const parsedPrice = Number(bulkPrice)
     if (!bulkPrice.trim() || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
@@ -619,11 +706,13 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   }
 
   async function submitOrder(values: OrderFormValues) {
+    if (orderSubmissionInProgress.current) return
     try {
       if (savedOrder) {
         toast.info(`El pedido ${savedOrder.id} ya está guardado.`)
         return
       }
+      orderSubmissionInProgress.current = true
 
       const totalQuantity = values.garments.reduce((total, garment) => total + garment.quantity, 0)
       if (values.items.length !== totalQuantity) {
@@ -632,7 +721,8 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       }
 
       const quantity = values.garments.reduce((total, garment) => total + garment.quantity, 0)
-      const orderTotals = calculateTotals(values.items)
+      const orderTotals = calculateTotals(values.items, values.globalDiscountMode, values.globalDiscountValue)
+      const salesperson = canChooseSalesperson ? values.salesperson : operator.name
       const order: DemoOrder = {
         id: createOrderId(),
         companyId,
@@ -645,8 +735,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
         stage: "diseno",
         progress: 0,
         total: orderTotals.grandTotal,
+        discountAmount: orderTotals.globalDiscount,
         paid: values.paid,
-        salesperson: values.salesperson,
+        salesperson,
         note: values.note,
         items: values.items.map((item) => ({
           garment: item.garment,
@@ -671,16 +762,18 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
             minute: "2-digit",
           }).format(new Date()),
           title: "Pedido registrado",
-          operator: values.salesperson,
+          operator: salesperson,
         }],
       }
       if (!inventory) throw new Error("El inventario todavía se está cargando. Inténtalo de nuevo.")
       await createSupabaseOrder(companyId, order, inventory)
       await refreshOrders()
       setSavedOrder(order)
-      toast.success(`Pedido ${order.id} guardado. Ya puedes compartir la cotización.`)
+      toast.success(`Pedido ${order.id} guardado y registrado en producción.`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo guardar el pedido.")
+    } finally {
+      orderSubmissionInProgress.current = false
     }
   }
 
@@ -705,6 +798,11 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   }
 
   async function saveAsQuotation() {
+    if (quotationSubmissionInProgress.current) return
+    if (savedOrder || orderSubmissionInProgress.current) {
+      toast.error("Este pedido ya fue registrado en producción y no puede guardarse también como cotización.")
+      return
+    }
     if (savedQuotation) {
       toast.info(`La cotización ${savedQuotation.quoteNumber} ya está guardada.`)
       return
@@ -717,6 +815,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }
 
     const values = parsedValues.data
+    const salesperson = canChooseSalesperson ? values.salesperson : operator.name
     const expectedByCategory = new Map<string, number>()
     for (const garment of values.garments) {
       const key = `${garment.type}:${garment.fit}`
@@ -735,7 +834,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }
 
     const quantity = values.garments.reduce((total, garment) => total + garment.quantity, 0)
-    const quotationTotals = calculateTotals(values.items)
+    const quotationTotals = calculateTotals(values.items, values.globalDiscountMode, values.globalDiscountValue)
     const quotationItems = values.items.map((item) => ({
       garment: item.garment,
       fit: item.fit,
@@ -750,10 +849,11 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }))
 
     setIsSavingQuotation(true)
+    quotationSubmissionInProgress.current = true
     try {
       const created = await createSupabaseQuotation(companyId, {
         customer_name: values.customer,
-        salesperson: values.salesperson,
+        salesperson,
         note: values.note,
         entry_date: values.entryDate,
         delivery_date: values.dueDate,
@@ -768,12 +868,13 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
         id: created.id,
         quoteNumber: created.quoteNumber,
         customer: values.customer,
-        salesperson: values.salesperson,
+        salesperson,
         note: values.note,
         entryDate: values.entryDate,
         dueDate: values.dueDate,
         quantity,
         total: quotationTotals.grandTotal,
+        discountAmount: quotationTotals.globalDiscount,
         items: quotationItems,
         images: created.images,
       })
@@ -781,13 +882,14 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo guardar la cotización.")
     } finally {
+      quotationSubmissionInProgress.current = false
       setIsSavingQuotation(false)
     }
   }
 
-  async function shareSavedQuotation() {
+  function getSavedQuotationShareMessage() {
     if (!savedQuotation) return
-    const text = [
+    return [
       `Cotización ${savedQuotation.quoteNumber}`,
       `Cliente: ${savedQuotation.customer}`,
       `Entrega pactada: ${savedQuotation.dueDate}`,
@@ -799,20 +901,6 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       `Total: ${money(savedQuotation.total)}`,
       ...savedQuotation.images.map((image, index) => `Imagen de referencia ${index + 1}: ${image.signedUrl}`),
     ].join("\n")
-
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: `Cotización ${savedQuotation.quoteNumber}`, text })
-        toast.success("Cotización compartida.")
-        return
-      }
-
-      await navigator.clipboard.writeText(text)
-      toast.success("Cotización copiada con los enlaces de sus imágenes.")
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return
-      toast.error("No se pudo compartir la cotización. Intenta copiarla desde un navegador con permisos.")
-    }
   }
 
   function downloadSavedQuotation() {
@@ -882,7 +970,8 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     <thead><tr><th>Prenda</th><th class="number">Valor por unidad</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <p class="total">Total: ${escapeHtml(money(savedQuotation.total))}</p>
+    ${savedQuotation.discountAmount > 0 ? `<p class="muted">Descuento general: −${escapeHtml(money(savedQuotation.discountAmount))}</p>` : ""}
+    <p class="total">Total: ${escapeHtml(money(savedQuotation.total))}</p>
   ${images ? `<h2>Imágenes de referencia</h2><section class="references">${images}</section>` : ""}
   <p class="muted">Esta cotización no constituye un pedido confirmado.</p>
 </body>
@@ -972,6 +1061,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     <tbody>${rows}</tbody>
   </table>
   <section class="totals">
+    ${savedOrder.discountAmount ? `<p><span>Descuento general</span><strong>−${money(savedOrder.discountAmount)}</strong></p>` : ""}
     <p><span>Total</span><strong>${money(savedOrder.total)}</strong></p>
     <p><span>Abono recibido</span><span>${money(savedOrder.paid)}</span></p>
     <p class="grand-total"><span>Saldo pendiente</span><span>${money(Math.max(savedOrder.total - savedOrder.paid, 0))}</span></p>
@@ -1002,11 +1092,6 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       void advance()
     }
   }
-
-  const totalGarments = watchedGarments.reduce(
-    (total, garment) => total + (Number.isFinite(garment.quantity) ? garment.quantity : 0),
-    0,
-  )
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
@@ -1067,46 +1152,52 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                 </label>
                 <div className="space-y-2 text-sm font-medium">
                   <label htmlFor="salesperson">Vendedor responsable</label>
-                  <Controller
-                    control={form.control}
-                    name="salesperson"
-                    render={({ field }) => (
-                      <div className="space-y-2">
-                        <Select
-                          value={isCustomSalesperson ? customSalespersonValue : field.value || null}
-                          onValueChange={(value) => {
-                            if (value === customSalespersonValue) {
-                              setIsCustomSalesperson(true)
-                              field.onChange("")
-                            } else if (value) {
-                              setIsCustomSalesperson(false)
-                              field.onChange(value)
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="w-full" id="salesperson">
-                            <SelectValue placeholder="Selecciona un vendedor" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {salespersonNames.map((name) => (
-                              <SelectItem key={name} value={name}>{name}</SelectItem>
-                            ))}
-                            <SelectItem value={customSalespersonValue}>Nombre personalizado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {isCustomSalesperson && (
-                          <Input
-                            autoComplete="name"
-                            aria-label="Nombre personalizado del vendedor"
-                            maxLength={100}
-                            onChange={(event) => field.onChange(event.target.value)}
-                            placeholder="Escribe el nombre del vendedor"
-                            value={field.value}
-                          />
-                        )}
-                      </div>
-                    )}
-                  />
+                  {canChooseSalesperson ? (
+                    <Controller
+                      control={form.control}
+                      name="salesperson"
+                      render={({ field }) => (
+                        <div className="space-y-2">
+                          <Select
+                            value={isCustomSalesperson ? customSalespersonValue : field.value || null}
+                            onValueChange={(value) => {
+                              if (value === customSalespersonValue) {
+                                setIsCustomSalesperson(true)
+                                field.onChange("")
+                              } else if (value) {
+                                setIsCustomSalesperson(false)
+                                field.onChange(value)
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-full" id="salesperson">
+                              <SelectValue placeholder="Selecciona un vendedor" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {salespersonNames.map((name) => (
+                                <SelectItem key={name} value={name}>{name}</SelectItem>
+                              ))}
+                              <SelectItem value={customSalespersonValue}>Nombre personalizado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {isCustomSalesperson && (
+                            <Input
+                              autoComplete="name"
+                              aria-label="Nombre personalizado del vendedor"
+                              maxLength={100}
+                              onChange={(event) => field.onChange(event.target.value)}
+                              placeholder="Escribe el nombre del vendedor"
+                              value={field.value}
+                            />
+                          )}
+                        </div>
+                      )}
+                    />
+                  ) : (
+                    <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-normal">
+                      {operator.name}
+                    </p>
+                  )}
                   <FieldError errors={[form.formState.errors.salesperson]} />
                 </div>
               </CardContent>
@@ -1117,166 +1208,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
             <>
             <Card>
               <CardHeader>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <CardTitle>Resumen de prendas base</CardTitle>
-                    <CardDescription>Define los tipos, hormas y cantidades del pedido.</CardDescription>
-                  </div>
-                  <Badge variant="secondary">{totalGarments} prendas</Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Prenda</TableHead>
-                      <TableHead>Horma</TableHead>
-                      <TableHead className="w-32">Cantidad</TableHead>
-                      <TableHead><span className="sr-only">Quitar</span></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {garments.fields.map((row, index) => (
-                      <TableRow
-                        className={
-                          index > 0 && watchedGarments[index - 1]?.type !== watchedGarments[index]?.type
-                            ? "border-t-4 border-t-background"
-                            : undefined
-                        }
-                        key={row.id}
-                      >
-                        <TableCell>
-                          <Popover
-                            open={openGarmentTypeIndex === index}
-                            onOpenChange={(open) => {
-                              setOpenGarmentTypeIndex(open ? index : null)
-                              if (open) setGarmentTypeSearch("")
-                            }}
-                          >
-                            <PopoverTrigger
-                              render={
-                                <Button
-                                  aria-expanded={openGarmentTypeIndex === index}
-                                  aria-label={`Prenda ${index + 1}`}
-                                  className="w-full min-w-36 justify-between"
-                                  role="combobox"
-                                  type="button"
-                                  variant="outline"
-                                />
-                              }
-                            >
-                              <span className="truncate">
-                                {watchedGarments[index]?.type || "Selecciona una prenda"}
-                              </span>
-                              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
-                            </PopoverTrigger>
-                            <PopoverContent align="start" className="w-[min(88vw,320px)] p-2">
-                              <div className="relative">
-                                <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                                <Input
-                                  aria-label="Buscar tipo de prenda"
-                                  autoFocus
-                                  className="pl-8"
-                                  onChange={(event) => setGarmentTypeSearch(event.target.value)}
-                                  placeholder="Buscar entre todas las prendas…"
-                                  value={garmentTypeSearch}
-                                />
-                              </div>
-                              <div
-                                aria-label="Tipos de prenda"
-                                className="mt-2 max-h-56 overflow-y-auto"
-                                role="listbox"
-                              >
-                                {visibleGarmentTypes.length > 0 ? visibleGarmentTypes.map((type) => {
-                                  const selected = watchedGarments[index]?.type === type
-                                  return (
-                                    <Button
-                                      aria-selected={selected}
-                                      className="w-full justify-between"
-                                      key={type}
-                                      onClick={() => {
-                                        form.setValue(`garments.${index}.type`, type, {
-                                          shouldDirty: true,
-                                          shouldValidate: true,
-                                        })
-                                        setOpenGarmentTypeIndex(null)
-                                        setGarmentTypeSearch("")
-                                      }}
-                                      role="option"
-                                      type="button"
-                                      variant="ghost"
-                                    >
-                                      <span className="truncate">{type}</span>
-                                      {selected && <CheckIcon className="size-4 shrink-0" />}
-                                    </Button>
-                                  )
-                                }) : (
-                                  <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                                    No se encontraron prendas.
-                                  </p>
-                                )}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                        </TableCell>
-                        <TableCell>
-                          <Controller
-                            control={form.control}
-                            name={`garments.${index}.fit`}
-                            render={({ field }) => (
-                              <Select value={field.value} onValueChange={(value) => field.onChange(value ?? "")}>
-                                <SelectTrigger aria-label={`Horma ${index + 1}`} className="w-full min-w-36">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {fits.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            aria-label={`Cantidad de prendas ${index + 1}`}
-                            className="w-28"
-                            min={1}
-                            type="number"
-                            {...form.register(`garments.${index}.quantity`, { valueAsNumber: true })}
-                          />
-                          <FieldError errors={[form.formState.errors.garments?.[index]?.quantity]} />
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            aria-label={`Quitar tipo de prenda ${index + 1}`}
-                            disabled={garments.fields.length === 1}
-                            onClick={() => garments.remove(index)}
-                            size="icon-sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <Trash2Icon />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <FieldError errors={form.formState.errors.garments?.root ? [form.formState.errors.garments.root] : []} />
-                <Button
-                  onClick={() => garments.append({ type: "Camiseta", fit: "Hombre", quantity: 1 })}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  <PlusIcon data-icon="inline-start" /> Añadir tipo de prenda
-                </Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
                 <CardTitle>Carga por lote de tallas</CardTitle>
                 <CardDescription>
-                  Agrega varias prendas de la misma talla. Cada prenda conserva su propia fila para personalizar nombre y número.
+                  Agrega prendas por tipo, horma, color y talla. Cada prenda conserva su propia fila para personalizar nombre y número.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1384,19 +1318,33 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   </Select>
                 </label>
                 <label className="space-y-2 text-sm font-medium">
-                  Cantidad de prendas
+                  Cantidad del lote
                   <Input
+                    aria-label="Cantidad de prendas del lote"
                     min={1}
                     onChange={(event) => setSizeBatchQuantity(event.target.value)}
                     type="number"
                     value={sizeBatchQuantity}
                   />
                 </label>
-                <div className="flex items-end">
-                  <Button className="w-full" onClick={addSizeBatch} type="button">
+                <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-3">
+                  <Button className="flex-1" onClick={addSizeBatch} type="button">
                     <PlusIcon data-icon="inline-start" /> Cargar lote
                   </Button>
+                  <Button
+                    disabled={selectedSizeBatchCount === 0}
+                    onClick={removeSizeBatch}
+                    type="button"
+                    variant="destructive"
+                  >
+                    <Trash2Icon data-icon="inline-start" /> Eliminar lote ({selectedSizeBatchCount})
+                  </Button>
                 </div>
+                {batchShortage > 0 && (
+                  <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 sm:col-span-2 lg:col-span-3 dark:text-amber-200">
+                    Stock insuficiente: hay {availableBatchStock} disponibles y faltan {batchShortage}. Puedes cargar el lote; el faltante quedará registrado en el seguimiento del pedido.
+                  </p>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -1405,7 +1353,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   <div>
                     <CardTitle>Matriz de personalización</CardTitle>
                     <CardDescription>
-                      Una fila por prenda. Ajusta las cantidades base y sincroniza la matriz para conservar el detalle ingresado.
+                      Personaliza los datos de cada prenda cargada por lote. Para retirar prendas repetidas, selecciona su tipo, horma, color y talla y elimina el lote.
                     </CardDescription>
                   </div>
                   <Badge variant="secondary">{items.fields.length} filas</Badge>
@@ -1489,7 +1437,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                           <TableCell>
                             <Button
                               aria-label={`Quitar fila ${index + 1}`}
-                              disabled={items.fields.length === 1 && totalGarments === 1}
+                              disabled={items.fields.length <= 1}
                               onClick={() => removeCustomizationRow(index)}
                               size="icon-sm"
                               type="button"
@@ -1502,11 +1450,6 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       ))}
                     </TableBody>
                   </Table>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={synchronizeMatrix} size="sm" type="button" variant="outline">
-                    Sincronizar filas con cantidades
-                  </Button>
                 </div>
                 {form.formState.errors.items?.message && (
                   <FieldError>{form.formState.errors.items.message}</FieldError>
@@ -1760,8 +1703,57 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                     <FieldError>{form.formState.errors.items.message}</FieldError>
                   )}
                   <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3 text-sm">
-                    <span className="text-muted-foreground">Total neto de prendas</span>
+                    <span className="text-muted-foreground">Total neto con ajustes</span>
                     <span className="font-semibold tabular-nums">{money(totals.grandTotal)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Descuento general del pedido</CardTitle>
+                  <CardDescription>
+                    Se aplica después de los ajustes individuales y reduce el total neto de la compra.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2 text-sm font-medium">
+                    Tipo de descuento
+                    <Controller
+                      control={form.control}
+                      name="globalDiscountMode"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) => {
+                            if (value === "fixed" || value === "percent") field.onChange(value)
+                          }}
+                        >
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="fixed">Monto fijo</SelectItem>
+                            <SelectItem value="percent">Porcentaje</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm font-medium">
+                    {watchedGlobalDiscountMode === "percent" ? "Porcentaje (%)" : "Valor del descuento"}
+                    <Input
+                      max={watchedGlobalDiscountMode === "percent" ? 100 : undefined}
+                      min={0}
+                      step={watchedGlobalDiscountMode === "percent" ? 0.1 : 1}
+                      type="number"
+                      {...form.register("globalDiscountValue", {
+                        setValueAs: (value: string) => value === "" ? 0 : Number(value),
+                      })}
+                      value={watchedGlobalDiscountValue || ""}
+                    />
+                    <FieldError errors={[form.formState.errors.globalDiscountValue]} />
+                  </label>
+                  <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3 text-sm sm:col-span-2">
+                    <span className="text-muted-foreground">Descuento general aplicado</span>
+                    <span className="font-semibold tabular-nums">−{money(totals.globalDiscount)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -1773,7 +1765,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
               <Card>
                 <CardHeader>
                   <CardTitle>Resumen financiero</CardTitle>
-                  <CardDescription>El total se recalcula al instante con los precios y ajustes por prenda.</CardDescription>
+                  <CardDescription>El total incluye ajustes individuales y descuento general.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex justify-between gap-4 text-sm">
@@ -1788,6 +1780,12 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                     <span className="text-muted-foreground">Descuentos</span>
                     <span className="tabular-nums">−{money(totals.discounts)}</span>
                   </div>
+                  {totals.globalDiscount > 0 && (
+                    <div className="flex justify-between gap-4 text-xs text-muted-foreground">
+                      <span>Descuento general</span>
+                      <span className="tabular-nums">−{money(totals.globalDiscount)}</span>
+                    </div>
+                  )}
                   <Separator />
                   <div className="flex items-center justify-between gap-4">
                     <div>
@@ -1888,6 +1886,20 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                         <Button
                           className="w-full"
                           nativeButton={false}
+                          render={
+                            <a
+                              href={getWhatsAppWebUrl(getOrderShareMessage(savedOrder))}
+                              rel="noreferrer"
+                              target="_blank"
+                            />
+                          }
+                          variant="outline"
+                        >
+                          <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp
+                        </Button>
+                        <Button
+                          className="w-full"
+                          nativeButton={false}
                           render={<Link href="/dashboard/orders" />}
                           variant="outline"
                         >
@@ -1907,6 +1919,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                 </CardContent>
               </Card>
 
+              {!savedOrder && (
               <Card className="lg:col-span-2">
                 <CardHeader>
                   <CardTitle>Cotización</CardTitle>
@@ -1975,11 +1988,17 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                         </Button>
                         <Button
                           className="w-full"
-                          onClick={() => void shareSavedQuotation()}
-                          type="button"
+                          nativeButton={false}
+                          render={
+                            <a
+                              href={getWhatsAppWebUrl(getSavedQuotationShareMessage() ?? "")}
+                              rel="noreferrer"
+                              target="_blank"
+                            />
+                          }
                           variant="outline"
                         >
-                          Compartir cotización
+                          <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp
                         </Button>
                         <Button
                           className="w-full"
@@ -2004,6 +2023,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                   )}
                 </CardContent>
               </Card>
+              )}
             </div>
           )}
 

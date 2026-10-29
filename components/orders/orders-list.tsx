@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import {
   EllipsisIcon,
   ListFilterIcon,
+  MessageCircleIcon,
   PlusIcon,
   RotateCcwIcon,
   SearchIcon,
@@ -63,6 +64,7 @@ import {
 } from "@/lib/orders/demo-data"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
 import { setSupabaseOrderDeleted } from "@/lib/orders/supabase-orders"
+import { getOrderShareMessage, getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 const statusTone: Record<OrderStatus, string> = {
@@ -285,6 +287,16 @@ export function OrdersList() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => router.push(`/dashboard/orders/${encodeURIComponent(order.id)}`)}>
                               Ver detalle
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => {
+                              window.open(
+                                getWhatsAppWebUrl(getOrderShareMessage(order)),
+                                "_blank",
+                                "noopener,noreferrer",
+                              )
+                            }}>
+                              <MessageCircleIcon />
+                              Compartir por WhatsApp
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => {
                               void navigator.clipboard.writeText(order.id).then(

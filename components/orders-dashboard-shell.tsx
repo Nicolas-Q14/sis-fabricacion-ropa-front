@@ -48,7 +48,11 @@ export function OrdersDashboardShell({
       />
       <SidebarInset>
         <SiteHeader companyName={companyName} role={role} />
-        <OrdersOperatorProvider companyId={companyId} operator={{ userId: operatorId, name: displayName }}>
+        <OrdersOperatorProvider
+          companyId={companyId}
+          operator={{ userId: operatorId, name: displayName }}
+          role={role}
+        >
           <main className="@container/main flex min-w-0 flex-1 flex-col gap-5 p-4 md:gap-6 md:p-6">
             {children}
           </main>

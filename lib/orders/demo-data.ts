@@ -83,6 +83,7 @@ export type DemoOrder = {
   stage: ProductionStageId
   progress: number
   total: number
+  discountAmount?: number
   paid: number
   paymentMethod?: string | null
   paymentStatus?: "Pendiente" | "Abonado" | "Pagado"

@@ -222,7 +222,6 @@ export async function loadSupabaseInventory(companyId: string): Promise<Inventor
       })),
     })),
     movements: recentMovements,
-    deductedOrderIds: [],
     reservedByVariant,
     reservedByVariantWarehouse,
     warehouses,

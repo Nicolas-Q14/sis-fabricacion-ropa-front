@@ -20,6 +20,7 @@ type OrderRow = {
   delivery_date: string
   status: string
   total_amount: number
+  discount_amount: number
   total_paid: number
   note: string | null
   summary: string | null
@@ -99,7 +100,7 @@ export async function loadSupabaseOrders(companyId: string) {
   const supabase = createClient()
   const { data: orderData, error: orderError } = await supabase
     .from("orders")
-    .select("id, company_id, code, customer_name, customer_phone, customer_email, seller_name, entry_date, delivery_date, status, total_amount, total_paid, note, summary, deleted_at, archived_at, created_at")
+    .select("id, company_id, code, customer_name, customer_phone, customer_email, seller_name, entry_date, delivery_date, status, total_amount, discount_amount, total_paid, note, summary, deleted_at, archived_at, created_at")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false })
   throwOnError(orderError)
@@ -274,6 +275,7 @@ export async function loadSupabaseOrders(companyId: string) {
       stage: "diseno",
       progress: 0,
       total: Number(row.total_amount),
+      discountAmount: Number(row.discount_amount ?? 0),
       paid: Number(row.total_paid),
       paymentMethod: latestPaymentMethod.get(row.id) ?? null,
       paymentStatus: Number(row.total_paid) <= 0
@@ -350,6 +352,7 @@ export async function createSupabaseOrder(
       delivery_date: order.dueDate,
       summary: order.item,
       total_amount: order.total,
+      discount_amount: order.discountAmount ?? 0,
       note: order.note,
     },
     p_items: items,

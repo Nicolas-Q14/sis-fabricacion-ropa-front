@@ -132,6 +132,15 @@ export function LoginForm({
                 </Button>
               </Field>
 
+              <Button
+                className="w-full"
+                nativeButton={false}
+                render={<Link href="/inventario" />}
+                variant="outline"
+              >
+                Consultar inventario actual
+              </Button>
+
               <FieldDescription className="text-center">
                 Acceso exclusivo para el equipo de trabajo.
               </FieldDescription>

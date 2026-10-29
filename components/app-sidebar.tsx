@@ -17,7 +17,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import { appRoleLabels, type AppRole, type CompanyOption } from "@/lib/auth/roles"
-import { FactoryIcon, FileTextIcon, ShirtIcon, UsersRoundIcon } from "lucide-react"
+import { FactoryIcon, FileTextIcon, ShirtIcon, UsersRoundIcon, BookOpenIcon } from "lucide-react"
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   companyId: string | null
@@ -43,7 +43,10 @@ export function AppSidebar({
     { title: "Producción", url: "/dashboard/production", icon: <FactoryIcon /> },
     { title: "Inventario", url: "/dashboard/inventory", icon: <ShirtIcon /> },
     ...(role === "superadmin"
-      ? [{ title: "Gestión de usuarios", url: "/dashboard/usuarios", icon: <UsersRoundIcon /> }]
+      ? [
+          { title: "Gestión de usuarios", url: "/dashboard/usuarios", icon: <UsersRoundIcon /> },
+          { title: "Catálogo público", url: "/dashboard/catalogo", icon: <BookOpenIcon /> },
+        ]
       : []),
   ]
 

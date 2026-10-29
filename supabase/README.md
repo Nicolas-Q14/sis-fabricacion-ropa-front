@@ -132,9 +132,10 @@ verificaciones anteriores.
 
 Las pantallas de pedidos, producción e inventario usan el cliente público de
 Supabase y dependen de estas políticas y RPC. Ya no buscan una empresa activa en
-`companies`; todos los usuarios autorizados comparten el espacio único. Los
-datos antiguos de `localStorage` permanecen intactos y no se importan
-automáticamente; deben migrarse por separado y vincular cada prenda con una
+`companies`; todos los usuarios autorizados comparten el espacio único. Las
+claves antiguas de `localStorage` pueden seguir en los navegadores, pero la
+aplicación ya no las lee ni las importa. Si se necesitan esos datos, deben
+exportarse y migrarse por separado a Supabase, vinculando cada prenda con una
 variante de inventario.
 
 ## Cotizaciones
@@ -182,6 +183,71 @@ entregar en una sola operación; el pago se revierte también si falla la
 validación de inventario o la entrega. El trigger protege además los cambios
 realizados fuera de la interfaz.
 
+## Responsable del pedido
+
+Aplica `migrations/20261029200000_enforce_order_seller_assignment.sql` para
+permitir que solo admin y superadmin asignen un vendedor distinto. Los usuarios
+de producción ven su propia cuenta como responsable y la base de datos fuerza
+ese valor al crear o cambiar el responsable de un pedido.
+
+## Descuento general en pedidos
+
+Aplica `migrations/20261029210000_order_general_discount.sql` después de las
+migraciones de pedidos. El formulario permite agregar un descuento fijo o
+porcentual al neto de las prendas, además de los ajustes individuales. El
+importe del descuento general queda almacenado en el pedido y se refleja en
+el total, el saldo y el desprendible. La misma operación se incluye en el total
+de cotizaciones.
+
+## Cotizaciones: filtros, papelera y WhatsApp
+
+Aplica `migrations/20261029220000_quotation_trash.sql` para habilitar la
+papelera recuperable durante 30 días. Las cotizaciones convertidas en pedidos
+no se pueden enviar a la papelera ni eliminar. Al abrir o actualizar la lista,
+las cotizaciones vencidas y sus imágenes se eliminan permanentemente. La lista
+permite filtrar por semana o mes, restaurar cotizaciones y eliminarlas
+permanentemente antes de que venza el plazo.
+
+Las acciones **Compartir por WhatsApp** abren WhatsApp Web con los datos del
+pedido o la cotización listos para enviar.
+
+Aplica también `migrations/20261029230000_allow_trashing_quotations_for_deleted_orders.sql`
+para permitir enviar a la papelera cotizaciones cuyo pedido asociado ya está
+en la papelera. Si se restaura el pedido, también se podrá restaurar su
+cotización; mientras el pedido siga en papelera, la cotización no se puede
+restaurar. Las cotizaciones vinculadas a pedidos activos siguen protegidas.
+
+## Inventario público
+
+Aplica `migrations/20261029160000_public_inventory_catalog.sql` para habilitar
+el enlace **Consultar inventario actual** desde el inicio de sesión. La página
+pública usa una función de solo lectura que expone el nombre del producto,
+categoría, género, color, talla, imagen y unidades disponibles. No publica
+precios, códigos internos, bodegas, reservas, movimientos ni datos de pedidos.
+La disponibilidad descuenta las reservas activas en las bodegas activas. La
+función puede ser llamada por usuarios anónimos, pero no concede acceso directo
+a las tablas privadas del inventario.
+
+Aplica después `migrations/20261029170000_public_inventory_catalog_hierarchy.sql`
+para incluir el año del catálogo en los datos públicos. La landing organiza los
+productos como `catalogos/año/productos/familia/subcategoría` y muestra las
+variantes en tarjetas con imagen, color, talla y disponibilidad. La administración
+exclusiva del superadmin está en **Catálogo público**; los productos creados o
+editados allí se reflejan en la landing. La carpeta de trabajos entregados se
+muestra como galería en preparación mientras no haya contenido real publicado.
+
+Si la función de guardado falla con `column reference "product_id" is ambiguous`,
+aplica `migrations/20261029180000_fix_inventory_product_id_ambiguity.sql`.
+Esta migración corrige los nombres de variable y califica las columnas al crear o
+editar productos.
+
+Aplica `migrations/20261029190000_catalog_image_storage.sql` para crear el
+bucket público `catalog-images`. Las imágenes se organizan en carpetas virtuales
+`catalog/{año}/{familia}/{subcategoría}/` y el formulario de productos permite
+cargarlas directamente o conservar una URL externa. Las descargas de imágenes
+son públicas para la landing; solo superadmins pueden subir, actualizar o borrar
+archivos. Se aceptan JPG, PNG, WebP y AVIF de hasta 5 MB.
+
 ## Aplicación web
 
 Configura `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` en el
@@ -194,10 +260,13 @@ movimientos de existencias usan RPC o triggers para conservar la atomicidad y
 la auditoría. La interfaz usa el espacio único y actualiza los datos con
 Supabase Realtime.
 
-Las migraciones no importan los datos ya guardados en `localStorage`. Se
-conservan en el navegador y deben transformarse y cargarse por separado si se
-quieren mantener; antes de crear pedidos en Supabase, configura el catálogo, la
-bodega principal, las variantes y las existencias.
+Los pedidos, inventario, pagos, movimientos y catálogo activos se leen y
+persisten en Supabase; las utilidades antiguas de almacenamiento local se
+retiraron. Las claves que una versión anterior guardó en `localStorage` pueden
+seguir en cada navegador, pero ya no se leen ni se importan automáticamente.
+Antes de operar, verifica que los datos necesarios estén cargados en Supabase;
+si hace falta conservar datos antiguos del navegador, deberán exportarse y
+migrarse por separado.
 
 La migración `migrations/20261021150000_inventory_catalog_management.sql`
 agrega el RPC seguro para eliminar productos. Un producto solo puede borrarse

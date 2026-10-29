@@ -124,6 +124,7 @@ export function DashboardClient({
     <OrdersOperatorProvider
       companyId={companyId}
       operator={{ userId: operatorId, name: fullName.trim() || email || "Tu cuenta" }}
+      role={role}
     >
       <DashboardContent
         companies={companies}
