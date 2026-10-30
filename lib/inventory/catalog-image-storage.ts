@@ -14,12 +14,7 @@ export async function uploadCatalogImage(
   file: File,
   taxonomy: { year: number; family: string; subcategory: string },
 ) {
-  if (!allowedImageTypes.has(file.type)) {
-    throw new Error("La imagen debe ser JPG, PNG, WebP o AVIF.")
-  }
-  if (file.size > maxImageSize) {
-    throw new Error("La imagen no puede superar los 5 MB.")
-  }
+  validateImage(file)
 
   const path = [
     "catalog",
@@ -40,10 +35,45 @@ export async function uploadCatalogImage(
   }
 }
 
+export async function uploadPublicCatalogImage(
+  file: File,
+  kind: "banner" | "carousel" | "footer" | "footer-qr",
+) {
+  validateImage(file)
+
+  const path = `marketing/${kind}/${crypto.randomUUID()}.${fileExtensions[file.type]}`
+  const supabase = createClient()
+  const { error } = await supabase.storage
+    .from(bucketName)
+    .upload(path, file, { contentType: file.type, upsert: false })
+  if (error) throw new Error(`No se pudo subir la imagen promocional: ${error.message}`)
+
+  return {
+    path,
+    publicUrl: supabase.storage.from(bucketName).getPublicUrl(path).data.publicUrl,
+  }
+}
+
 export async function removeCatalogImage(path: string) {
   const supabase = createClient()
   const { error } = await supabase.storage.from(bucketName).remove([path])
   if (error) throw new Error(`No se pudo eliminar la imagen no asociada: ${error.message}`)
+}
+
+export async function removePublicCatalogImage(path: string) {
+  if (!/^marketing\/(banner|carousel|footer|footer-qr)\/[^/]+$/.test(path)) {
+    throw new Error("La ruta de la imagen promocional no es válida.")
+  }
+  await removeCatalogImage(path)
+}
+
+function validateImage(file: File) {
+  if (!allowedImageTypes.has(file.type)) {
+    throw new Error("La imagen debe ser JPG, PNG, WebP o AVIF.")
+  }
+  if (file.size > maxImageSize) {
+    throw new Error("La imagen no puede superar los 5 MB.")
+  }
 }
 
 function normalizeFolder(value: string) {

@@ -138,6 +138,15 @@ aplicación ya no las lee ni las importa. Si se necesitan esos datos, deben
 exportarse y migrarse por separado a Supabase, vinculando cada prenda con una
 variante de inventario.
 
+## Contenido promocional del catálogo público
+
+Aplica `migrations/20261030160000_public_catalog_marketing.sql` después de las
+migraciones de roles y de almacenamiento de imágenes del catálogo. La migración
+crea el banner, el carrusel y el footer públicos, y limita la edición y la subida
+de sus imágenes al superadmin. El contenido se administra desde
+`/dashboard/catalogo`; el carrusel y el footer aparecen después de los productos
+en `/inventario`.
+
 ## Cotizaciones
 
 Después de aplicar `migrations/20261021140000_single_company_orders_inventory.sql`,

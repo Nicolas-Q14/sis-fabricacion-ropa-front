@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import {
-  ArrowRightIcon,
   ChevronDownIcon,
   FolderIcon,
   GalleryVerticalEndIcon,
@@ -22,6 +21,12 @@ import {
   type InventoryFamily,
 } from "@/lib/inventory/catalog-structure"
 import { createClient } from "@/lib/supabase/client"
+import {
+  PublicCatalogBanner,
+  PublicCatalogCarousel,
+  PublicCatalogFooter,
+} from "@/components/inventory/public-catalog-marketing"
+import { usePublicCatalogMarketing } from "@/lib/inventory/use-public-catalog-marketing"
 
 type PublicInventoryRow = {
   catalog_year: number
@@ -113,6 +118,7 @@ export function PublicInventory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const { banner, slides, footer } = usePublicCatalogMarketing(false)
 
   const loadInventory = useCallback(() => {
     const supabase = createClient()
@@ -183,27 +189,7 @@ export function PublicInventory() {
       </header>
 
       <div className="mx-auto max-w-7xl space-y-8 px-4 py-6 sm:px-6 sm:py-8">
-        <section className="relative isolate overflow-hidden rounded-2xl bg-slate-900 px-6 py-10 text-white sm:px-10 sm:py-14">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_75%_30%,rgba(220,38,38,0.5),transparent_45%),linear-gradient(120deg,#111827,#334155)]" />
-          <div className="max-w-2xl space-y-5">
-            <Badge className="border-white/20 bg-white/10 text-white" variant="outline">
-              Inventario Frenesi Sport
-            </Badge>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">
-              Prendas para cada equipo y cada temporada.
-            </h1>
-            <p className="max-w-xl text-sm text-slate-200 sm:text-base">
-              Explora nuestro catálogo organizado por colección, categoría y tipo de prenda.
-              Consulta tallas y existencias actualizadas.
-            </p>
-            <Button
-              className="bg-white text-slate-950 hover:bg-slate-100"
-              onClick={() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth" })}
-            >
-              Explorar catálogo <ArrowRightIcon data-icon="inline-end" />
-            </Button>
-          </div>
-        </section>
+        <PublicCatalogBanner banner={banner} />
 
         <section className="space-y-5" id="catalog">
           <div className="flex flex-wrap items-end justify-between gap-4">
@@ -220,7 +206,7 @@ export function PublicInventory() {
             </div>
           </div>
 
-          <div className="grid items-start gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
+          <div className="grid items-start gap-5 lg:grid-cols-[190px_minmax(0,1fr)]">
             <Card className="overflow-visible">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm">
@@ -397,26 +383,28 @@ export function PublicInventory() {
                       </CardContent>
                     </Card>
                   ) : (
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       {filteredProducts.map((product) => {
                         const availableQuantity = product.variants.reduce(
                           (total, variant) => total + variant.available,
                           0,
                         )
+                        const colors = [...new Set(product.variants.map((variant) => variant.color))]
+                        const sizes = [...new Set(product.variants.map((variant) => variant.size))]
                         return (
-                          <Card className="overflow-hidden border-slate-200 bg-white" key={[
+                          <Card className="group overflow-hidden rounded-xl border-slate-200/80 bg-white py-0 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md" key={[
                             product.catalog_year,
                             product.product_name,
                             product.category,
                             product.subcategory,
                           ].join("-")}>
-                            <div className="relative aspect-[4/3] bg-slate-100">
+                            <div className="relative aspect-[1.08/1] bg-[#f0f2f5]">
                               {product.image_url ? (
                                 <Image
                                   alt={product.product_name}
-                                  className="object-contain p-4"
+                                  className="object-contain p-3 transition-transform duration-300 group-hover:scale-[1.03] sm:p-4"
                                   fill
-                                  sizes="(min-width: 1280px) 25vw, (min-width: 640px) 40vw, 100vw"
+                                  sizes="(min-width: 1280px) 20vw, (min-width: 640px) 45vw, 100vw"
                                   src={product.image_url}
                                   unoptimized
                                 />
@@ -426,47 +414,64 @@ export function PublicInventory() {
                                   <span className="text-xs">Imagen no disponible</span>
                                 </div>
                               )}
+                              <Badge
+                                className={`absolute right-2 bottom-2 border-0 px-2 py-0.5 text-[10px] shadow-sm ${
+                                  availableQuantity > 0
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={`mr-1 size-1.5 rounded-full ${
+                                    availableQuantity > 0 ? "bg-emerald-500" : "bg-slate-400"
+                                  }`}
+                                />
+                                {availableQuantity > 0 ? "Disponible" : "Agotado"}
+                              </Badge>
                             </div>
-                            <CardContent className="space-y-3 p-4">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <h3 className="truncate text-sm font-semibold">{product.product_name}</h3>
-                                  <p className="mt-1 text-xs text-muted-foreground">
-                                    {product.catalog_year} · {displayTaxonomy(product.category)} ·{" "}
-                                    {getSubcategoryLabel(product.category ?? "all", product.subcategory ?? "")}
-                                  </p>
-                                </div>
-                                <Badge variant={availableQuantity > 0 ? "secondary" : "outline"}>
-                                  {availableQuantity > 0 ? "Disponible" : "Agotado"}
-                                </Badge>
+                            <CardContent className="space-y-2.5 p-3">
+                              <div className="min-w-0">
+                                <h3 className="truncate text-xs font-semibold sm:text-sm">
+                                  {product.product_name}
+                                </h3>
+                                <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                                  {product.catalog_year} · {displayTaxonomy(product.category)} ·{" "}
+                                  {getSubcategoryLabel(product.category ?? "all", product.subcategory ?? "")}
+                                </p>
                               </div>
-                              <div className="space-y-2 border-t pt-3">
-                                {[...new Set(product.variants.map((variant) => variant.color))].map((color) => {
-                                  const colorVariants = product.variants.filter((variant) => variant.color === color)
-                                  return (
-                                    <div className="flex items-center justify-between gap-2 text-xs" key={color}>
-                                      <span className="truncate font-medium">{color}</span>
-                                      <div className="flex flex-wrap justify-end gap-1">
-                                        {colorVariants.map((variant) => (
-                                          <span
-                                            className={`rounded-full px-2 py-0.5 ${
-                                              variant.available > 0
-                                                ? "bg-slate-100 text-slate-700"
-                                                : "bg-slate-50 text-slate-400"
-                                            }`}
-                                            key={`${variant.color}-${variant.size}`}
-                                            title={`${variant.available} disponibles`}
-                                          >
-                                            {variant.size}
-                                            {variant.available > 0 && (
-                                              <span className="ml-1 tabular-nums">· {variant.available}</span>
-                                            )}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )
-                                })}
+                              <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                                <div aria-label={`Colores: ${colors.join(", ")}`} className="flex -space-x-1">
+                                  {colors.map((color) => (
+                                    <span
+                                      aria-hidden="true"
+                                      className="size-4 rounded-full border-2 border-white shadow-sm"
+                                      key={color}
+                                      style={{ backgroundColor: colorSwatch(color) }}
+                                      title={color}
+                                    />
+                                  ))}
+                                </div>
+                                <div aria-label="Tallas y existencias" className="flex flex-wrap justify-end gap-1">
+                                  {sizes.map((size) => {
+                                    const quantity = product.variants
+                                      .filter((variant) => variant.size === size)
+                                      .reduce((total, variant) => total + variant.available, 0)
+                                    return (
+                                      <span
+                                        className={`rounded-md px-1.5 py-0.5 text-[9px] font-medium ${
+                                          quantity > 0
+                                            ? "bg-slate-100 text-slate-600"
+                                            : "bg-slate-50 text-slate-400"
+                                        }`}
+                                        key={size}
+                                        title={`${quantity} disponibles para talla ${size}`}
+                                      >
+                                        {size}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
                               </div>
                             </CardContent>
                           </Card>
@@ -490,8 +495,34 @@ export function PublicInventory() {
               )}
             </div>
           </div>
+          <PublicCatalogCarousel
+            slides={slides}
+          />
         </section>
+        <PublicCatalogFooter footer={footer} />
       </div>
     </main>
   )
+}
+
+function colorSwatch(value: string) {
+  const normalized = value.trim().toLocaleLowerCase("es")
+  if (/^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(normalized)) return normalized
+  const colors: Record<string, string> = {
+    blanco: "#ffffff",
+    "blanco hielo": "#f8fafc",
+    negro: "#171717",
+    "azul marino": "#1e3a8a",
+    azul: "#2563eb",
+    rojo: "#dc2626",
+    "rojo oscuro": "#991b1b",
+    verde: "#16a34a",
+    amarillo: "#eab308",
+    gris: "#6b7280",
+    "gris oscuro": "#374151",
+    naranja: "#ea580c",
+    rosado: "#ec4899",
+    morado: "#7c3aed",
+  }
+  return colors[normalized] ?? "#64748b"
 }
