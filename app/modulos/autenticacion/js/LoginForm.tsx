@@ -59,8 +59,8 @@ export default function LoginForm() {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-muted p-6 md:p-10">
-      <section className="w-full max-w-4xl" aria-label="Iniciar sesión">
+    <main className="flex min-h-svh items-center justify-center bg-[radial-gradient(ellipse_at_top,_#ffffff_0%,_#f4f5f7_55%,_#e9ebef_100%)] p-4 sm:p-6 md:p-10">
+      <section className="w-full max-w-6xl" aria-label="Iniciar sesión">
         <LoginFormView
           email={email}
           isSubmitting={isSubmitting}
