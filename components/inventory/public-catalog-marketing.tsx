@@ -633,7 +633,7 @@ export function PublicCatalogMarketingEditor({
   const sortedSlides = [...slides].sort((left, right) => left.sort_order - right.sort_order)
 
   return (
-    <Card>
+    <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
       <CardHeader>
         <CardTitle>Contenido promocional del catálogo</CardTitle>
         <CardDescription>
@@ -646,7 +646,7 @@ export function PublicCatalogMarketingEditor({
             No se pudo actualizar el contenido desde el servidor: {error}
           </p>
         )}
-        <form className="space-y-4 rounded-xl border p-4" onSubmit={saveBanner}>
+        <form className="space-y-4 rounded-xl border-2 border-slate-200 bg-background p-4 shadow-lg shadow-slate-950/15 dark:border-slate-700" onSubmit={saveBanner}>
           <div className="space-y-1">
             <h3 className="font-semibold">Banner principal</h3>
             <p className="text-sm text-muted-foreground">
@@ -690,7 +690,7 @@ export function PublicCatalogMarketingEditor({
           </Button>
         </form>
 
-        <form className="space-y-4 rounded-xl border p-4" onSubmit={saveFooter}>
+        <form className="space-y-4 rounded-xl border-2 border-slate-200 bg-background p-4 shadow-lg shadow-slate-950/15 dark:border-slate-700" onSubmit={saveFooter}>
           <div className="space-y-1">
             <h3 className="font-semibold">Footer de contacto</h3>
             <p className="text-sm text-muted-foreground">
@@ -811,7 +811,7 @@ export function PublicCatalogMarketingEditor({
           </Button>
         </form>
 
-        <form className="space-y-4 rounded-xl border p-4" onSubmit={addSlide}>
+        <form className="space-y-4 rounded-xl border-2 border-slate-200 bg-background p-4 shadow-lg shadow-slate-950/15 dark:border-slate-700" onSubmit={addSlide}>
           <div className="space-y-1">
             <h3 className="font-semibold">Agregar imagen al carrusel</h3>
             <p className="text-sm text-muted-foreground">
@@ -869,7 +869,7 @@ export function PublicCatalogMarketingEditor({
             <h3 className="font-semibold">Imágenes del carrusel</h3>
             {sortedSlides.map((slide, index) => (
               <div
-                className="grid gap-3 rounded-xl border p-3 sm:grid-cols-[120px_minmax(0,1fr)_auto]"
+                className="grid gap-3 rounded-xl border-2 border-slate-200 bg-background p-3 shadow-md shadow-slate-950/10 dark:border-slate-700 sm:grid-cols-[120px_minmax(0,1fr)_auto]"
                 key={slide.id}
               >
                 <div className="relative aspect-video overflow-hidden rounded-lg bg-muted">

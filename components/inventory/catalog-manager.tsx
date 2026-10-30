@@ -55,7 +55,7 @@ export function CatalogManager() {
         </Button>
       </header>
 
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FolderIcon className="size-5 text-amber-500" />
@@ -69,7 +69,7 @@ export function CatalogManager() {
           {years.map((year) => {
             const yearProducts = inventory.products.filter((product) => product.catalogYear === year)
             return (
-              <details className="group rounded-lg border" key={year} open={year === years[0]}>
+              <details className="group rounded-xl border-2 border-slate-200 bg-background shadow-lg shadow-slate-950/15 dark:border-slate-700" key={year} open={year === years[0]}>
                 <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-medium">
                   <FolderIcon className="size-4 text-amber-500" />
                   <span>catalogos/{year}</span>
@@ -89,14 +89,14 @@ export function CatalogManager() {
                           )
                           if (familyProducts.length === 0) return null
                           return (
-                            <div className="space-y-2 rounded-lg bg-muted/40 p-3" key={subcategory}>
+                            <div className="space-y-2 rounded-lg border border-slate-200 bg-muted/30 p-3 shadow-md shadow-slate-950/10 dark:border-slate-700" key={subcategory}>
                               <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                                 <FolderIcon className="size-3.5 text-amber-500" />
                                 {getSubcategoryLabel(family, subcategory)}
                               </p>
                               {familyProducts.map((product) => (
                                 <div
-                                  className="flex items-center justify-between gap-3 rounded-md border bg-background p-3"
+                                  className="flex items-center justify-between gap-3 rounded-md border bg-background p-3 shadow-sm shadow-slate-950/10"
                                   key={product.id}
                                 >
                                   <div className="flex min-w-0 items-center gap-2">
@@ -153,12 +153,12 @@ export function CatalogManager() {
 
 function ExtraProducts({ products }: { products: InventoryProduct[] }) {
   return (
-    <div className="space-y-2 rounded-lg bg-muted/40 p-3">
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-muted/30 p-3 shadow-md shadow-slate-950/10 dark:border-slate-700">
       <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <FolderIcon className="size-3.5 text-amber-500" /> otras categorías
       </p>
       {products.map((product) => (
-        <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-3" key={product.id}>
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-3 shadow-sm shadow-slate-950/10" key={product.id}>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{product.name}</p>
             <p className="truncate text-xs text-muted-foreground">{product.sku} · {product.subcategory}</p>

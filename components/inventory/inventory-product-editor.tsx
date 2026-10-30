@@ -1,14 +1,34 @@
 "use client"
 
-import { useState } from "react"
-import type { ReactNode } from "react"
+import { useEffect, useRef, useState } from "react"
+import type { DragEvent, ReactNode } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
+import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeftIcon, PackagePlusIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  BarcodeIcon,
+  BoxesIcon,
+  CalendarDaysIcon,
+  ClipboardListIcon,
+  CreditCardIcon,
+  FileTextIcon,
+  ImagePlusIcon,
+  LinkIcon,
+  LockKeyholeIcon,
+  PackagePlusIcon,
+  ShirtIcon,
+  TagsIcon,
+  UploadCloudIcon,
+  UserRoundIcon,
+  UsersRoundIcon,
+  XIcon,
+} from "lucide-react"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -18,6 +38,13 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import {
@@ -174,6 +201,33 @@ function InventoryProductForm({
   const form = useWatch({ control: formMethods.control })
   const [saving, setSaving] = useState(false)
   const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("")
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const imageUrlField = formMethods.register("imageUrl")
+
+  useEffect(() => () => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
+  }, [imagePreviewUrl])
+
+  function selectImage(file: File | undefined) {
+    if (!file) return
+    if (!["image/jpeg", "image/png", "image/webp", "image/avif"].includes(file.type)) {
+      toast.error("La imagen debe ser JPG, PNG, WebP o AVIF.")
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("La imagen no puede superar los 5 MB.")
+      return
+    }
+
+    setImageFile(file)
+    setImagePreviewUrl(URL.createObjectURL(file))
+  }
+
+  function handleImageDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    selectImage(event.dataTransfer.files[0])
+  }
 
   function updateTaxonomy(
     field: "catalogYear" | "category" | "subcategory",
@@ -336,11 +390,11 @@ function InventoryProductForm({
         </p>
       </div>
 
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <PackagePlusIcon className="size-5" />
-            Datos del producto
+            <ClipboardListIcon className="size-5" />
+            Datos generales del producto
           </CardTitle>
           <CardDescription>
             {productId
@@ -350,130 +404,252 @@ function InventoryProductForm({
         </CardHeader>
         <CardContent>
           <form
-            className="grid gap-4 sm:grid-cols-2"
+            className="space-y-6"
             onSubmit={formMethods.handleSubmit(
               submit,
               () => toast.error("Revisa los campos del producto; hay valores inválidos."),
             )}
           >
             {Object.values(formMethods.formState.errors)[0]?.message && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive sm:col-span-2">
+              <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
                 {Object.values(formMethods.formState.errors)[0]?.message}
               </p>
             )}
-            <Field label="SKU">
-              <Input aria-describedby="sku-help" readOnly value={form.sku} />
-              <span className="text-xs font-normal text-muted-foreground" id="sku-help">
-                Se genera automáticamente según el año y tipo de producto.
-              </span>
-            </Field>
-            <Field label="Nombre del producto">
-              <Input {...formMethods.register("name")} required />
-            </Field>
-            <Field label="Catálogo">
-              <select
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) => updateTaxonomy("catalogYear", event.target.value)}
-                value={form.catalogYear}
-              >
-                {catalogYears(inventoryProducts).map((year) => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Familia">
-              <select
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) => {
-                  const family = event.target.value as InventoryFamily
-                  const subcategory = INVENTORY_FAMILIES[family][0].value
-                  formMethods.setValue("category", family, { shouldDirty: true, shouldValidate: true })
-                  formMethods.setValue("subcategory", subcategory, { shouldDirty: true, shouldValidate: true })
-                  formMethods.setValue("sku", createInventorySku(
-                    Number(formMethods.getValues("catalogYear")),
-                    family,
-                    subcategory,
-                    inventoryProducts,
-                    productId,
-                  ), { shouldDirty: true })
-                }}
-                value={form.category}
-              >
-                {Object.keys(INVENTORY_FAMILIES).map((family) => (
-                  <option key={family} value={family}>{family}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Subcategoría">
-              <select
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                onChange={(event) => updateTaxonomy("subcategory", event.target.value)}
-                value={form.subcategory}
-              >
-                {INVENTORY_FAMILIES[form.category as InventoryFamily].map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Género">
-              <select className="h-9 rounded-md border border-input bg-background px-3 text-sm" {...formMethods.register("gender")}>
-                {["Unisex", "Hombre", "Mujer", "Infantil"].map((gender) => <option key={gender}>{gender}</option>)}
-              </select>
-            </Field>
-            <Field label="Precio de venta (COP)">
-              <Input min="0" required step="0.01" type="number" {...formMethods.register("price")} />
-            </Field>
-            <Field label="Código de barras">
-              <Input {...formMethods.register("barcode")} />
-            </Field>
-            <Field label="Descripción">
-              <Input {...formMethods.register("description")} />
-            </Field>
-            <Field label="URL de imagen">
-              <Input type="url" {...formMethods.register("imageUrl")} />
-            </Field>
-            <Field label="O subir imagen al Storage">
-              <Input
-                accept="image/jpeg,image/png,image/webp,image/avif"
-                onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
-                type="file"
-              />
-              <p className="text-xs text-muted-foreground">
-                JPG, PNG, WebP o AVIF · máximo 5 MB
-                {imageFile ? ` · ${imageFile.name}` : ""}
-              </p>
-            </Field>
-            {productId && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm sm:col-span-2">
-                <p className="font-medium">Variantes registradas</p>
-                <p className="mt-1 text-muted-foreground">
-                  {product?.variants.map((variant) => `${variant.color} · ${variant.size}`).join(", ") || "Sin variantes"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Las variantes existentes no se eliminan al editar la ficha.
-                </p>
+
+            <div className="grid gap-x-5 gap-y-4 lg:grid-cols-2">
+              <Field icon={<UserRoundIcon />} label="Nombre del producto">
+                <Input autoComplete="off" {...formMethods.register("name")} required />
+              </Field>
+              <Field icon={<CalendarDaysIcon />} label="Año del catálogo">
+                <Select
+                  onValueChange={(value) => value && updateTaxonomy("catalogYear", value)}
+                  value={form.catalogYear}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {catalogYears(inventoryProducts).map((year) => (
+                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field icon={<LockKeyholeIcon />} label="SKU">
+                <Input aria-describedby="sku-help" readOnly value={form.sku} />
+                <span className="text-xs font-normal text-muted-foreground" id="sku-help">
+                  Se genera automáticamente según el año y tipo de producto.
+                </span>
+              </Field>
+              <Field icon={<UsersRoundIcon />} label="Familia">
+                <Select
+                  onValueChange={(value) => {
+                    if (!value || !(value in INVENTORY_FAMILIES)) return
+                    const family = value as InventoryFamily
+                    const subcategory = INVENTORY_FAMILIES[family][0].value
+                    formMethods.setValue("category", family, { shouldDirty: true, shouldValidate: true })
+                    formMethods.setValue("subcategory", subcategory, { shouldDirty: true, shouldValidate: true })
+                    formMethods.setValue("sku", createInventorySku(
+                      Number(formMethods.getValues("catalogYear")),
+                      family,
+                      subcategory,
+                      inventoryProducts,
+                      productId,
+                    ), { shouldDirty: true })
+                  }}
+                  value={form.category}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(INVENTORY_FAMILIES).map((family) => (
+                      <SelectItem key={family} value={family}>{family}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field icon={<ShirtIcon />} label="Subcategoría">
+                <Select
+                  onValueChange={(value) => value && updateTaxonomy("subcategory", value)}
+                  value={form.subcategory}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INVENTORY_FAMILIES[form.category as InventoryFamily].map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field icon={<FileTextIcon />} label="Género">
+                <Select
+                  onValueChange={(value) => value && formMethods.setValue("gender", value, { shouldDirty: true })}
+                  value={form.gender}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["Unisex", "Hombre", "Mujer", "Infantil"].map((gender) => (
+                      <SelectItem key={gender} value={gender}>{gender}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field icon={<CreditCardIcon />} label="Precio de venta (COP)">
+                <Input min="0" required step="0.01" type="number" {...formMethods.register("price")} />
+              </Field>
+              <Field icon={<BarcodeIcon />} label="Código de barras">
+                <Input {...formMethods.register("barcode")} />
+              </Field>
+              <Field icon={<FileTextIcon />} label="Descripción">
+                <textarea
+                  className="min-h-20 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                  {...formMethods.register("description")}
+                />
+              </Field>
+              <Field icon={<LinkIcon />} label="URL de imagen">
+                <Input
+                  placeholder="https://..."
+                  type="url"
+                  {...imageUrlField}
+                  onChange={(event) => {
+                    imageUrlField.onChange(event)
+                    if (imageFile) {
+                      setImageFile(null)
+                      setImagePreviewUrl("")
+                    }
+                  }}
+                />
+              </Field>
+
+              <Field icon={<ImagePlusIcon />} label="Subir imagen al Storage">
+                <div
+                  className="space-y-3 rounded-lg border border-dashed bg-muted/20 p-3 transition-colors hover:bg-muted/40"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleImageDrop}
+                >
+                  <input
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    className="sr-only"
+                    onChange={(event) => {
+                      selectImage(event.target.files?.[0])
+                      event.target.value = ""
+                    }}
+                    ref={imageInputRef}
+                    type="file"
+                  />
+                  {imagePreviewUrl || form.imageUrl || product?.imageUrl ? (
+                    <div className="relative aspect-[4/3] overflow-hidden rounded-md border bg-background">
+                      <Image
+                        alt={`Vista previa de ${form.name || "la imagen del producto"}`}
+                        className="object-contain p-2"
+                        fill
+                        sizes="(min-width: 1024px) 25vw, 100vw"
+                        src={imagePreviewUrl || form.imageUrl || product?.imageUrl || ""}
+                        unoptimized
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      className="flex min-h-32 w-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground"
+                      onClick={() => imageInputRef.current?.click()}
+                      type="button"
+                    >
+                      <UploadCloudIcon className="size-8" />
+                      <span className="font-medium text-foreground">Arrastra el archivo aquí</span>
+                      <span>o haz clic para buscar</span>
+                    </button>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                    <Button
+                      onClick={() => imageInputRef.current?.click()}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      <ImagePlusIcon data-icon="inline-start" />
+                      {imagePreviewUrl ? "Cambiar imagen" : "Seleccionar imagen"}
+                    </Button>
+                    {imageFile ? (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="max-w-36 truncate text-xs text-muted-foreground">{imageFile.name}</span>
+                        <Button
+                          aria-label="Quitar imagen seleccionada"
+                          onClick={() => {
+                            setImageFile(null)
+                            setImagePreviewUrl("")
+                          }}
+                          size="icon-sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <XIcon />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">También puedes usar una URL</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">JPG, PNG, WebP o AVIF · máximo 5 MB</p>
+                </div>
+              </Field>
+
+              <div className="space-y-4">
+                <Field icon={<TagsIcon />} label={productId ? "Agregar colores (separados por coma)" : "Colores (separados por coma)"}>
+                  <Input placeholder="Azul marino, Blanco, Negro" {...formMethods.register("colors")} />
+                  <div className="flex flex-wrap gap-1">
+                    {uniqueValues(form.colors ?? "").map((color) => (
+                      <Badge key={color} variant="secondary">{color}</Badge>
+                    ))}
+                  </div>
+                </Field>
+                <Field icon={<BoxesIcon />} label={productId ? "Agregar tallas (separadas por coma)" : "Tallas (separadas por coma)"}>
+                  <Input placeholder="S, M, L, XL" {...formMethods.register("sizes")} />
+                  <div className="flex flex-wrap gap-1">
+                    {uniqueValues(form.sizes ?? "").map((size) => (
+                      <Badge key={size} variant="outline">{size}</Badge>
+                    ))}
+                  </div>
+                </Field>
+                {productId && (
+                  <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                    <p className="font-medium">Variantes registradas</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {product?.variants.map((variant) => `${variant.color} · ${variant.size}`).join(", ") || "Sin variantes"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Las variantes existentes no se eliminan al editar la ficha.
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
-            <Field label={productId ? "Agregar colores (separados por coma)" : "Colores (separados por coma)"}>
-              <Input placeholder="Azul marino, Blanco, Negro" {...formMethods.register("colors")} />
-            </Field>
-            <Field label={productId ? "Agregar tallas (separadas por coma)" : "Tallas (separadas por coma)"}>
-              <Input placeholder="S, M, L, XL" {...formMethods.register("sizes")} />
-            </Field>
-            <Field label="Stock inicial por cada variante nueva">
-              <Input min="0" required step="1" type="number" {...formMethods.register("initialStock")} />
-            </Field>
-            <Field label="Stock mínimo por variante">
-              <Input min="0" required step="1" type="number" {...formMethods.register("minStock")} />
-            </Field>
-            <Field label="Stock máximo por variante">
-              <Input min="0" required step="1" type="number" {...formMethods.register("maxStock")} />
-            </Field>
-            <div className="flex gap-2 pt-2 sm:col-span-2">
+
+              <div className="grid grid-cols-3 gap-3 lg:col-span-2">
+                <Field label="Stock inicial por variante">
+                  <Input min="0" required step="1" type="number" {...formMethods.register("initialStock")} />
+                </Field>
+                <Field label="Mínimo">
+                  <Input min="0" required step="1" type="number" {...formMethods.register("minStock")} />
+                </Field>
+                <Field label="Máximo">
+                  <Input min="0" required step="1" type="number" {...formMethods.register("maxStock")} />
+                </Field>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 border-t pt-4">
               <Button disabled={saving} type="submit">
+                <PackagePlusIcon data-icon="inline-start" />
                 {saving ? "Guardando…" : productId ? "Guardar cambios" : "Crear producto"}
               </Button>
-              <Button nativeButton={false} render={<Link href="/dashboard/inventory" />} variant="outline">
+              <Button nativeButton={false} render={<Link href={returnTo} />} variant="outline">
                 Cancelar
               </Button>
             </div>
@@ -518,10 +694,21 @@ function uniqueValues(value: string) {
   return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))]
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  icon,
+  label,
+  children,
+}: {
+  icon?: ReactNode
+  label: string
+  children: ReactNode
+}) {
   return (
     <label className="grid min-w-0 gap-1.5 text-sm font-medium">
-      <span>{label}</span>
+      <span className="flex items-center gap-2">
+        {icon && <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>}
+        {label}
+      </span>
       {children}
     </label>
   )

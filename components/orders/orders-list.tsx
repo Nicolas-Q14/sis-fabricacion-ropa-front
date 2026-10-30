@@ -228,7 +228,7 @@ export function OrdersList() {
 
         <TabsContent value="activos">
           {loading && <p className="pb-3 text-sm text-muted-foreground">Sincronizando pedidos…</p>}
-          <Card className="gap-0 py-0">
+          <Card className="gap-0 py-0 shadow-md shadow-slate-900/10">
             <CardHeader className="border-b py-4">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {`${filteredOrders.length} pedidos`}
@@ -326,7 +326,7 @@ export function OrdersList() {
 
         <TabsContent value="papelera">
           {loading && <p className="pb-3 text-sm text-muted-foreground">Sincronizando pedidos…</p>}
-          <Card className="gap-0 py-0">
+          <Card className="gap-0 py-0 shadow-md shadow-slate-900/10">
             <CardHeader className="border-b py-4">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {`${filteredTrashedOrders.length} pedidos en la papelera`}

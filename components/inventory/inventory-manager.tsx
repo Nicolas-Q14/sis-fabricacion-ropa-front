@@ -47,12 +47,14 @@ import { deleteSupabaseProduct, useDemoInventory } from "@/lib/inventory/use-dem
 import { InventoryStockAdjustment } from "@/components/inventory/inventory-stock-adjustment"
 import { InventoryReferenceStockBatch } from "@/components/inventory/inventory-reference-stock-batch"
 
+const PRODUCTS_PER_PAGE = 5
+
 export function InventoryManager() {
   const { companyId } = useOrdersOperator()
   const { inventory, error, refresh } = useDemoInventory()
   const [query, setQuery] = useState("")
-  const [visibleRows, setVisibleRows] = useState(15)
-  const [visibleMovements, setVisibleMovements] = useState(10)
+  const [visibleRows, setVisibleRows] = useState(PRODUCTS_PER_PAGE)
+  const [visibleMovements, setVisibleMovements] = useState(PRODUCTS_PER_PAGE)
   const [familyFilter, setFamilyFilter] = useState("all")
   const [subcategoryFilter, setSubcategoryFilter] = useState("all")
   const [warehouseFilter, setWarehouseFilter] = useState("all")
@@ -139,8 +141,8 @@ export function InventoryManager() {
 
   function setCatalogFilter(setter: (value: string) => void, value: string | null) {
     setter(value ?? "all")
-    setVisibleRows(15)
-    setVisibleMovements(10)
+    setVisibleRows(PRODUCTS_PER_PAGE)
+    setVisibleMovements(PRODUCTS_PER_PAGE)
   }
 
   async function confirmDelete() {
@@ -202,7 +204,7 @@ export function InventoryManager() {
         <MetricCard label="Stock físico" value={String(totalStock)} detail="Unidades registradas" />
       </section>
 
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <CardTitle>Alertas de stock bajo</CardTitle>
           <CardDescription>
@@ -229,7 +231,7 @@ export function InventoryManager() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
@@ -245,7 +247,7 @@ export function InventoryManager() {
                 className="pl-9"
                 onChange={(event) => {
                   setQuery(event.target.value)
-                  setVisibleRows(15)
+                  setVisibleRows(PRODUCTS_PER_PAGE)
                 }}
                 placeholder="Buscar producto, SKU, color o talla"
                 value={query}
@@ -301,7 +303,7 @@ export function InventoryManager() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border shadow-md shadow-slate-950/10">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -394,17 +396,17 @@ export function InventoryManager() {
             </Table>
           </div>
           {visibleRows < filteredProducts.length && (
-            <Button onClick={() => setVisibleRows((count) => count + 15)} variant="outline">
+            <Button onClick={() => setVisibleRows((count) => count + PRODUCTS_PER_PAGE)} variant="outline">
               Mostrar más productos
             </Button>
           )}
 
-          <div className="space-y-3 border-t pt-5">
+          <div className="space-y-3 rounded-xl border-2 border-slate-200 bg-background p-4 shadow-lg shadow-slate-950/15 ring-1 ring-slate-900/5 dark:border-slate-700">
             <div>
               <h2 className="font-semibold">Catálogo de productos</h2>
               <p className="text-sm text-muted-foreground">Edita la ficha o elimina productos sin historial asociado.</p>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-lg border shadow-md shadow-slate-950/10">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -458,7 +460,7 @@ export function InventoryManager() {
               </Table>
             </div>
             {visibleRows < filteredProducts.length && (
-              <Button onClick={() => setVisibleRows((count) => count + 15)} variant="outline">
+              <Button onClick={() => setVisibleRows((count) => count + PRODUCTS_PER_PAGE)} variant="outline">
                 Mostrar más productos
               </Button>
             )}
@@ -466,7 +468,7 @@ export function InventoryManager() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <CardTitle>Movimientos y reservas</CardTitle>
           <CardDescription>
@@ -474,7 +476,7 @@ export function InventoryManager() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border shadow-md shadow-slate-950/10">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -535,7 +537,7 @@ export function InventoryManager() {
             </Table>
           </div>
           {visibleMovements < inventory.movements.length && (
-            <Button onClick={() => setVisibleMovements((count) => count + 10)} variant="outline">
+            <Button onClick={() => setVisibleMovements((count) => count + PRODUCTS_PER_PAGE)} variant="outline">
               Mostrar más movimientos
             </Button>
           )}
@@ -568,7 +570,7 @@ export function InventoryManager() {
                   <ArrowDownUpIcon data-icon="inline-start" /> Agregar unidades por talla/color
                 </Button>
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-lg border shadow-md shadow-slate-950/10">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -678,7 +680,7 @@ export function InventoryManager() {
 
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <Card>
+    <Card className="border-2 shadow-lg shadow-slate-950/15 ring-1 ring-slate-900/10">
       <CardHeader className="pb-2">
         <CardDescription>{label}</CardDescription>
         <CardTitle className="text-3xl">{value}</CardTitle>

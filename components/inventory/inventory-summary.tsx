@@ -24,7 +24,7 @@ export function InventorySummary({
 
   return (
     <div className="grid min-w-0 gap-5 lg:grid-cols-2">
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangleIcon className="size-5" />
@@ -41,7 +41,7 @@ export function InventorySummary({
           ) : lowStock.length ? (
             <ul className="space-y-2">
               {lowStock.slice(0, 6).map((item) => (
-                <li className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm" key={`${item.product}-${item.color}-${item.size}`}>
+                <li className="flex items-center justify-between gap-3 rounded-md border bg-background p-2 text-sm shadow-sm shadow-slate-950/10" key={`${item.product}-${item.color}-${item.size}`}>
                   <span className="min-w-0 truncate">{item.product} · {item.color} · {item.size}</span>
                   <Badge variant="destructive">{item.available} disponibles</Badge>
                 </li>
@@ -61,7 +61,7 @@ export function InventorySummary({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-2 shadow-xl shadow-slate-950/20 ring-1 ring-slate-900/10">
         <CardHeader>
           <CardTitle>Movimientos recientes</CardTitle>
           <CardDescription>Últimos cambios de existencias registrados en el inventario.</CardDescription>
@@ -74,7 +74,7 @@ export function InventorySummary({
           ) : inventory.movements.length ? (
             <ul className="space-y-2">
               {inventory.movements.slice(0, 5).map((movement) => (
-                <li className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm" key={movement.id}>
+                <li className="flex items-center justify-between gap-3 rounded-md border bg-background p-2 text-sm shadow-sm shadow-slate-950/10" key={movement.id}>
                   <div className="min-w-0">
                     <p className="truncate font-medium">{movement.productName} · {movement.variantName}</p>
                     <p className="text-xs text-muted-foreground">

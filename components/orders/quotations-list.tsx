@@ -377,7 +377,7 @@ export function QuotationsList() {
       {loading ? (
         <p className="text-sm text-muted-foreground">Cargando cotizaciones…</p>
       ) : visibleQuotations.length === 0 ? (
-        <Card>
+        <Card className="shadow-md shadow-slate-900/10">
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             {view === "trash"
               ? "No hay cotizaciones en la papelera durante este período."
@@ -387,7 +387,7 @@ export function QuotationsList() {
       ) : (
         <div className="grid gap-4">
           {visibleQuotations.map((quotation) => (
-            <Card key={quotation.id}>
+            <Card className="shadow-md shadow-slate-900/10" key={quotation.id}>
               <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>

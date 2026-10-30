@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 
 import { NavMain } from "@/components/nav-main"
@@ -59,9 +60,13 @@ export function AppSidebar({
               className="data-[slot=sidebar-menu-button]:p-1.5!"
               render={<a href="/dashboard" />}
             >
-              <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <ShirtIcon className="size-5" />
-              </span>
+              <Image
+                alt="Frenesi Sport"
+                className="size-8 rounded-md"
+                height={32}
+                src="/favicon-32x32.png"
+                width={32}
+              />
               <span className="text-base font-semibold">Frenesi Sport</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

@@ -303,28 +303,28 @@ function DashboardContent({
             aria-label="Indicadores principales"
             className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
           >
-            <Card>
+            <Card className="shadow-md shadow-slate-900/10">
               <CardHeader className="pb-2">
                 <CardDescription>Pedidos activos</CardDescription>
                 <CardTitle className="text-3xl">{ordersLoading ? "—" : activeOrders.length}</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">Pedidos registrados que aún no se han entregado</CardContent>
             </Card>
-            <Card>
+            <Card className="shadow-md shadow-slate-900/10">
               <CardHeader className="pb-2">
                 <CardDescription>Prendas en producción</CardDescription>
                 <CardTitle className="text-3xl">{ordersLoading ? "—" : garmentsInProduction}</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">Prendas en una fase activa de fabricación</CardContent>
             </Card>
-            <Card>
+            <Card className="shadow-md shadow-slate-900/10">
               <CardHeader className="pb-2">
                 <CardDescription>Entregas vencidas o próximas</CardDescription>
                 <CardTitle className="text-3xl">{ordersLoading ? "—" : dueOrders.length}</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">Pedidos pendientes hasta los próximos 3 días</CardContent>
             </Card>
-            <Card>
+            <Card className="shadow-md shadow-slate-900/10">
               <CardHeader className="pb-2">
                 <CardDescription>Variantes con stock bajo</CardDescription>
                 <CardTitle className="text-3xl">{inventory ? lowStock.length : "—"}</CardTitle>
@@ -407,7 +407,7 @@ function DashboardContent({
 
           <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.9fr)]">
             <section className="scroll-mt-6 min-w-0" id="pedidos">
-              <Card>
+              <Card className="shadow-md shadow-slate-900/10">
                 <CardHeader>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
