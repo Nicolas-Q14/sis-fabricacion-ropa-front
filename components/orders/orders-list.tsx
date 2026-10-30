@@ -64,7 +64,7 @@ import {
 } from "@/lib/orders/demo-data"
 import { useDemoOrders } from "@/lib/orders/use-demo-orders"
 import { setSupabaseOrderDeleted } from "@/lib/orders/supabase-orders"
-import { getOrderShareMessage, getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
+import { shareOrderPdf } from "@/lib/orders/share-pdf"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 
 const statusTone: Record<OrderStatus, string> = {
@@ -288,13 +288,7 @@ export function OrdersList() {
                             <DropdownMenuItem onClick={() => router.push(`/dashboard/orders/${encodeURIComponent(order.id)}`)}>
                               Ver detalle
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => {
-                              window.open(
-                                getWhatsAppWebUrl(getOrderShareMessage(order)),
-                                "_blank",
-                                "noopener,noreferrer",
-                              )
-                            }}>
+                            <DropdownMenuItem onClick={() => void shareOrderPdf(companyId, order)}>
                               <MessageCircleIcon />
                               Compartir por WhatsApp
                             </DropdownMenuItem>

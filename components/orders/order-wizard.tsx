@@ -69,7 +69,7 @@ import {
   type QuotationItem,
 } from "@/lib/orders/supabase-quotations"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
-import { getOrderShareMessage, getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
+import { shareOrderPdf, shareQuotationPdf } from "@/lib/orders/share-pdf"
 
 const priceAdjustmentSchema = z.object({
   type: z.enum(["surcharge", "discount"]),
@@ -98,7 +98,7 @@ const orderSchema = z.object({
   entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
   dueDate: z.string().min(1, "Selecciona la fecha pactada."),
   salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
-  globalDiscountMode: z.enum(["fixed", "percent"]),
+  globalDiscountMode: z.enum(["", "fixed", "percent"]),
   globalDiscountValue: z.number().min(0, "El descuento no puede ser negativo."),
   garments: z.array(z.object({
     type: z.string().min(1, "Selecciona una prenda."),
@@ -114,6 +114,13 @@ const orderSchema = z.object({
   path: ["dueDate"],
 }).superRefine((values, context) => {
   const totals = calculateTotals(values.items, values.globalDiscountMode, values.globalDiscountValue)
+  if (values.globalDiscountValue > 0 && values.globalDiscountMode === "") {
+    context.addIssue({
+      code: "custom",
+      message: "Selecciona el tipo de descuento para aplicar el valor.",
+      path: ["globalDiscountMode"],
+    })
+  }
   if (values.items.some((item) => item.adjustment.enabled
     && item.adjustment.type === "discount"
     && item.adjustment.mode === "percent"
@@ -194,7 +201,7 @@ const quotationFormSchema = z.object({
   entryDate: z.string().min(1, "Selecciona la fecha de ingreso."),
   dueDate: z.string().min(1, "Selecciona la fecha pactada."),
   salesperson: z.string().trim().min(1, "Selecciona o escribe un vendedor."),
-  globalDiscountMode: z.enum(["fixed", "percent"]),
+  globalDiscountMode: z.enum(["", "fixed", "percent"]),
   globalDiscountValue: z.number().min(0, "El descuento no puede ser negativo."),
   garments: z.array(z.object({
     type: z.string().min(1, "Selecciona una prenda."),
@@ -207,6 +214,13 @@ const quotationFormSchema = z.object({
   path: ["dueDate"],
 }).superRefine((values, context) => {
   const totals = calculateTotals(values.items, values.globalDiscountMode, values.globalDiscountValue)
+  if (values.globalDiscountValue > 0 && values.globalDiscountMode === "") {
+    context.addIssue({
+      code: "custom",
+      message: "Selecciona el tipo de descuento para aplicar el valor.",
+      path: ["globalDiscountMode"],
+    })
+  }
   if (values.items.some((item) => item.adjustment.enabled
     && item.adjustment.type === "discount"
     && item.adjustment.mode === "percent"
@@ -306,7 +320,7 @@ function discountFor(item: FormItem) {
 
 function calculateTotals(
   items: FormItem[],
-  globalDiscountMode: "fixed" | "percent" = "fixed",
+  globalDiscountMode: "" | "fixed" | "percent" = "",
   globalDiscountValue = 0,
 ) {
   const subtotal = items.reduce((total, item) => total + item.unitPrice, 0)
@@ -315,7 +329,9 @@ function calculateTotals(
   const itemNet = Math.max(0, subtotal + surcharges - itemDiscounts)
   const globalDiscount = globalDiscountMode === "percent"
     ? itemNet * globalDiscountValue / 100
-    : globalDiscountValue
+    : globalDiscountMode === "fixed"
+      ? globalDiscountValue
+      : 0
   const discounts = itemDiscounts + globalDiscount
   return {
     subtotal,
@@ -426,7 +442,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       entryDate: today(),
       dueDate: "",
       salesperson: canChooseSalesperson ? "" : operator.name,
-      globalDiscountMode: "fixed",
+      globalDiscountMode: "",
       globalDiscountValue: 0,
       garments: [],
       items: [],
@@ -887,22 +903,6 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     }
   }
 
-  function getSavedQuotationShareMessage() {
-    if (!savedQuotation) return
-    return [
-      `Cotización ${savedQuotation.quoteNumber}`,
-      `Cliente: ${savedQuotation.customer}`,
-      `Entrega pactada: ${savedQuotation.dueDate}`,
-      "",
-      ...savedQuotation.items.map((item) =>
-        `• ${item.garment} ${item.fit}, ${item.color}, talla ${item.size}${item.name ? ` · ${item.name}` : ""}${item.number ? ` · N.º ${item.number}` : ""}: ${money(item.netPrice)}`,
-      ),
-      "",
-      `Total: ${money(savedQuotation.total)}`,
-      ...savedQuotation.images.map((image, index) => `Imagen de referencia ${index + 1}: ${image.signedUrl}`),
-    ].join("\n")
-  }
-
   function downloadSavedQuotation() {
     if (!savedQuotation) return
     const printWindow = window.open("", "_blank")
@@ -1317,27 +1317,42 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                     </SelectContent>
                   </Select>
                 </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Cantidad del lote
-                  <Input
-                    aria-label="Cantidad de prendas del lote"
-                    min={1}
-                    onChange={(event) => setSizeBatchQuantity(event.target.value)}
-                    type="number"
-                    value={sizeBatchQuantity}
-                  />
-                </label>
+                <div className="space-y-2 text-sm font-medium">
+                  <label htmlFor="size-batch-quantity">Cantidad del lote</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      aria-label="Cantidad de prendas del lote"
+                      className="min-w-0 flex-1"
+                      id="size-batch-quantity"
+                      min={1}
+                      onChange={(event) => setSizeBatchQuantity(event.target.value)}
+                      type="number"
+                      value={sizeBatchQuantity}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label={`Eliminar lote (${selectedSizeBatchCount})`}
+                            disabled={selectedSizeBatchCount === 0}
+                            onClick={removeSizeBatch}
+                            size="icon-sm"
+                            type="button"
+                            variant="destructive"
+                          />
+                        }
+                      >
+                        <Trash2Icon />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Eliminar lote ({selectedSizeBatchCount})
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
                 <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-3">
                   <Button className="flex-1" onClick={addSizeBatch} type="button">
                     <PlusIcon data-icon="inline-start" /> Cargar lote
-                  </Button>
-                  <Button
-                    disabled={selectedSizeBatchCount === 0}
-                    onClick={removeSizeBatch}
-                    type="button"
-                    variant="destructive"
-                  >
-                    <Trash2Icon data-icon="inline-start" /> Eliminar lote ({selectedSizeBatchCount})
                   </Button>
                 </div>
                 {batchShortage > 0 && (
@@ -1723,12 +1738,20 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       name="globalDiscountMode"
                       render={({ field }) => (
                         <Select
-                          value={field.value}
+                          value={field.value ?? null}
                           onValueChange={(value) => {
                             if (value === "fixed" || value === "percent") field.onChange(value)
                           }}
                         >
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="w-full">
+                            <SelectValue>
+                              {(value) => value === "fixed"
+                                ? "Monto fijo"
+                                : value === "percent"
+                                  ? "Porcentaje"
+                                  : "Sin descuento"}
+                            </SelectValue>
+                          </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="fixed">Monto fijo</SelectItem>
                             <SelectItem value="percent">Porcentaje</SelectItem>
@@ -1736,6 +1759,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                         </Select>
                       )}
                     />
+                    <FieldError errors={[form.formState.errors.globalDiscountMode]} />
                   </label>
                   <label className="space-y-2 text-sm font-medium">
                     {watchedGlobalDiscountMode === "percent" ? "Porcentaje (%)" : "Valor del descuento"}
@@ -1885,14 +1909,8 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       <div className="grid gap-2 sm:grid-cols-2">
                         <Button
                           className="w-full"
-                          nativeButton={false}
-                          render={
-                            <a
-                              href={getWhatsAppWebUrl(getOrderShareMessage(savedOrder))}
-                              rel="noreferrer"
-                              target="_blank"
-                            />
-                          }
+                          onClick={() => void shareOrderPdf(companyId, savedOrder)}
+                          type="button"
                           variant="outline"
                         >
                           <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp
@@ -1988,14 +2006,19 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                         </Button>
                         <Button
                           className="w-full"
-                          nativeButton={false}
-                          render={
-                            <a
-                              href={getWhatsAppWebUrl(getSavedQuotationShareMessage() ?? "")}
-                              rel="noreferrer"
-                              target="_blank"
-                            />
-                          }
+                          onClick={() => void shareQuotationPdf(companyId, {
+                            quoteNumber: savedQuotation.quoteNumber,
+                            customer: savedQuotation.customer,
+                            salesperson: savedQuotation.salesperson,
+                            note: savedQuotation.note,
+                            entryDate: savedQuotation.entryDate,
+                            dueDate: savedQuotation.dueDate,
+                            quantity: savedQuotation.quantity,
+                            total: savedQuotation.total,
+                            items: savedQuotation.items,
+                            referenceImageUrls: savedQuotation.images.map((image) => image.signedUrl),
+                          })}
+                          type="button"
                           variant="outline"
                         >
                           <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp

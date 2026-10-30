@@ -51,7 +51,7 @@ import { useDemoInventory } from "@/lib/inventory/use-demo-inventory"
 import { GarmentTraceSheet } from "@/components/orders/garment-trace-sheet"
 import { Progress } from "@/components/ui/progress"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
-import { getOrderShareMessage, getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
+import { shareOrderPdf } from "@/lib/orders/share-pdf"
 
 type PendingDelivery = {
   itemIds: string[]
@@ -193,14 +193,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            nativeButton={false}
-            render={
-              <a
-                href={getWhatsAppWebUrl(getOrderShareMessage(order))}
-                rel="noreferrer"
-                target="_blank"
-              />
-            }
+            onClick={() => void shareOrderPdf(operator.companyId, order)}
+            type="button"
             variant="outline"
           >
             <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp

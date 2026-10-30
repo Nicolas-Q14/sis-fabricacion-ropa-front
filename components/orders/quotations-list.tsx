@@ -30,7 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { getWhatsAppWebUrl } from "@/lib/orders/whatsapp"
+import { shareQuotationPdf } from "@/lib/orders/share-pdf"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import {
   convertSupabaseQuotationToOrder,
@@ -66,22 +66,6 @@ function escapeHtml(value: string) {
     '"': "&quot;",
     "'": "&#39;",
   })[character] ?? character)
-}
-
-function quoteDescription(quotation: LoadedQuotation) {
-  const itemLines = quotation.items.map((item) =>
-    `• ${item.garment} ${item.fit}, ${item.color}, talla ${item.size}${item.name ? ` · ${item.name}` : ""}${item.number ? ` · N.º ${item.number}` : ""}: ${money(item.netPrice)}`,
-  )
-  return [
-    `Cotización ${quotation.quote_number}`,
-    `Cliente: ${quotation.customer_name}`,
-    `Entrega: ${formatDate(quotation.delivery_date)}`,
-    "",
-    ...itemLines,
-    "",
-    `Total: ${money(Number(quotation.grand_total))}`,
-    ...quotation.images.map((image, index) => `Imagen de referencia ${index + 1}: ${image.signedUrl}`),
-  ].join("\n")
 }
 
 function printableRows(items: QuotationItem[]) {
@@ -470,14 +454,19 @@ export function QuotationsList() {
                         <ArrowDownToLineIcon data-icon="inline-start" /> Descargar / imprimir PDF
                       </Button>
                       <Button
-                        nativeButton={false}
-                        render={
-                          <a
-                            href={getWhatsAppWebUrl(quoteDescription(quotation))}
-                            rel="noreferrer"
-                            target="_blank"
-                          />
-                        }
+                        onClick={() => void shareQuotationPdf(companyId, {
+                          quoteNumber: quotation.quote_number,
+                          customer: quotation.customer_name,
+                          salesperson: quotation.salesperson,
+                          note: quotation.note,
+                          entryDate: quotation.entry_date,
+                          dueDate: quotation.delivery_date,
+                          quantity: quotation.quantity,
+                          total: Number(quotation.grand_total),
+                          items: quotation.items,
+                          referenceImageUrls: quotation.images.map((image) => image.signedUrl),
+                        })}
+                        type="button"
                         variant="outline"
                       >
                         <MessageCircleIcon data-icon="inline-start" /> Compartir por WhatsApp
