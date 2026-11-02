@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import type { CSSProperties } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
+import { DashboardOrderActivity } from "@/components/dashboard-order-activity"
 import { InventorySummary } from "@/components/inventory/inventory-summary"
 import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
@@ -212,6 +213,19 @@ function DashboardContent({
     String(dueSoon.getDate()).padStart(2, "0"),
   ].join("-")
   const activeOrders = orders.filter((order) => order.status !== "Entregado")
+  const inventoryProducts = inventory?.products ?? []
+  const inventoryVariantCount = inventoryProducts.reduce(
+    (total, product) => total + product.variants.length,
+    0,
+  )
+  const inventoryUnitCount = inventoryProducts.reduce(
+    (total, product) => total + product.variants.reduce(
+      (variantTotal, variant) => variantTotal
+        + Object.values(variant.stockByWarehouse).reduce((stockTotal, stock) => stockTotal + stock, 0),
+      0,
+    ),
+    0,
+  )
   const garments = orders.flatMap((order) => order.items)
   const productionOrders = productionDateFilter === "all"
     ? orders
@@ -330,6 +344,47 @@ function DashboardContent({
                 <CardTitle className="text-3xl">{inventory ? lowStock.length : "—"}</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">Disponibles iguales o inferiores al mínimo</CardContent>
+            </Card>
+          </section>
+
+          <section
+            aria-label="Actividad de pedidos e inventario"
+            className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.75fr)]"
+          >
+            <DashboardOrderActivity loading={ordersLoading} orders={orders} />
+            <Card className="h-full">
+              <CardHeader>
+                <CardTitle>Resumen de inventario</CardTitle>
+                <CardDescription>Existencias y productos disponibles en el catálogo interno.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between gap-4 border-b pb-3">
+                  <span className="text-sm text-muted-foreground">Productos</span>
+                  <span className="text-xl font-semibold tabular-nums">{inventory ? inventoryProducts.length : "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 border-b pb-3">
+                  <span className="text-sm text-muted-foreground">Variantes</span>
+                  <span className="text-xl font-semibold tabular-nums">{inventory ? inventoryVariantCount : "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4 border-b pb-3">
+                  <span className="text-sm text-muted-foreground">Unidades en existencia</span>
+                  <span className="text-xl font-semibold tabular-nums">{inventory ? inventoryUnitCount : "—"}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">Variantes con stock bajo</span>
+                  <Badge variant={lowStock.length > 0 ? "destructive" : "secondary"}>
+                    {inventory ? lowStock.length : "—"}
+                  </Badge>
+                </div>
+                <Button
+                  className="w-full"
+                  nativeButton={false}
+                  render={<Link href="/dashboard/inventory" />}
+                  variant="outline"
+                >
+                  Consultar inventario
+                </Button>
+              </CardContent>
             </Card>
           </section>
 

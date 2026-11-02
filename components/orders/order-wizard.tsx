@@ -70,6 +70,11 @@ import {
 } from "@/lib/orders/supabase-quotations"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import { shareOrderPdf, shareQuotationPdf } from "@/lib/orders/share-pdf"
+import {
+  amountInWords,
+  companyDocumentHeaderMarkup,
+  waitForCompanyLogo,
+} from "@/lib/orders/document-format"
 
 const priceAdjustmentSchema = z.object({
   type: z.enum(["surcharge", "discount"]),
@@ -529,6 +534,20 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     if (inventoryError) toast.error(inventoryError)
   }, [inventoryError])
 
+  useEffect(() => {
+    if (!inventory) return
+
+    watchedItems.forEach((item, index) => {
+      if (item.priceManuallyEdited) return
+      const inventoryPrice = inventory.products.find((product) => product.name === item.garment)?.price
+      if (inventoryPrice === undefined || inventoryPrice === item.unitPrice) return
+
+      form.setValue(`items.${index}.unitPrice`, inventoryPrice, {
+        shouldValidate: true,
+      })
+    })
+  }, [form, inventory, watchedItems])
+
   async function advance() {
     if (step === 2 && form.getValues("paymentStatus") === "Pagado") {
       form.setValue("paid", totals.grandTotal, { shouldDirty: true })
@@ -631,6 +650,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
         ...defaultItem(sizeBatchGarment, sizeBatchFit),
         color: selectedSizeBatchColor,
         size: selectedSizeBatchSize,
+        unitPrice: sizeBatchProduct?.price ?? 0,
       }),
     )
     if (addedItems.length > 0) items.append(addedItems)
@@ -701,6 +721,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
       form.setValue(`items.${index}.unitPrice`, parsedPrice, {
         shouldDirty: true,
         shouldValidate: true,
+      })
+      form.setValue(`items.${index}.priceManuallyEdited`, true, {
+        shouldDirty: true,
       })
       updated += 1
     })
@@ -935,6 +958,10 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     @page { size: A4; margin: 18mm; }
     body { color: #172033; font: 14px/1.5 Arial, sans-serif; margin: 0 auto; max-width: 760px; }
     header { border-bottom: 2px solid #172033; margin-bottom: 24px; padding-bottom: 16px; }
+    .company-brand { align-items: center; display: flex; gap: 14px; margin-bottom: 16px; }
+    .company-brand img { height: 54px; object-fit: contain; width: 110px; }
+    .company-brand strong, .company-brand span { display: block; }
+    .company-brand span { color: #596579; font-size: 12px; }
     h1 { font-size: 24px; margin: 0 0 4px; }
     h2 { font-size: 16px; margin: 28px 0 10px; }
     .muted { color: #667085; }
@@ -954,6 +981,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
 <body>
   <button class="print-button" id="print-quotation">Descargar o imprimir como PDF</button>
   <header>
+    ${companyDocumentHeaderMarkup()}
     <h1>Cotización ${escapeHtml(savedQuotation.quoteNumber)}</h1>
     <div class="muted">${escapeHtml(new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()))}</div>
   </header>
@@ -972,6 +1000,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   </table>
     ${savedQuotation.discountAmount > 0 ? `<p class="muted">Descuento general: −${escapeHtml(money(savedQuotation.discountAmount))}</p>` : ""}
     <p class="total">Total: ${escapeHtml(money(savedQuotation.total))}</p>
+    <p class="muted"><strong>Valor total en letras:</strong> ${escapeHtml(amountInWords(savedQuotation.total))}</p>
   ${images ? `<h2>Imágenes de referencia</h2><section class="references">${images}</section>` : ""}
   <p class="muted">Esta cotización no constituye un pedido confirmado.</p>
 </body>
@@ -994,8 +1023,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
         image.addEventListener("error", () => resolve(), { once: true })
       })
     }))
-    void imagesLoaded.then(() => window.setTimeout(printOnce, 100))
-    window.setTimeout(printOnce, 5000)
+    const companyLogoLoaded = waitForCompanyLogo(
+      printWindow.document.querySelector(".company-brand img"),
+    )
+    void Promise.all([imagesLoaded, companyLogoLoaded])
+      .then(() => window.setTimeout(printOnce, 100))
+      .catch((error: unknown) => {
+        printWindow.close()
+        toast.error(error instanceof Error ? error.message : "No se pudo preparar el logo para imprimir.")
+      })
   }
 
   function downloadReceipt() {
@@ -1019,11 +1055,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Desprendible ${escapeHtml(savedOrder.id)}</title>
+  <title>Pedido ${escapeHtml(savedOrder.id)}</title>
   <style>
     @page { size: A4; margin: 18mm; }
     body { color: #172033; font: 14px/1.5 Arial, sans-serif; margin: 0 auto; max-width: 760px; }
     header { border-bottom: 2px solid #172033; margin-bottom: 24px; padding-bottom: 16px; }
+    .company-brand { align-items: center; display: flex; gap: 14px; margin-bottom: 16px; }
+    .company-brand img { height: 54px; object-fit: contain; width: 110px; }
+    .company-brand strong, .company-brand span { display: block; }
+    .company-brand span { color: #596579; font-size: 12px; }
     h1 { font-size: 24px; margin: 0 0 4px; }
     h2 { font-size: 16px; margin: 28px 0 10px; }
     .muted { color: #596579; }
@@ -1044,8 +1084,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
 <body>
   <button class="print-button" id="print-receipt">Descargar o imprimir como PDF</button>
   <header>
-    <h1>Desprendible de pedido</h1>
-    <div class="muted">Pedido ${escapeHtml(savedOrder.id)} · ${escapeHtml(new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()))}</div>
+    ${companyDocumentHeaderMarkup()}
+    <h1>Pedido ${escapeHtml(savedOrder.id)}</h1>
+    <div class="muted">Fecha: ${escapeHtml(new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()))}</div>
   </header>
   <section class="details">
     <p><strong>Cliente:</strong> ${escapeHtml(savedOrder.customer)}</p>
@@ -1063,16 +1104,18 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
   <section class="totals">
     ${savedOrder.discountAmount ? `<p><span>Descuento general</span><strong>−${money(savedOrder.discountAmount)}</strong></p>` : ""}
     <p><span>Total</span><strong>${money(savedOrder.total)}</strong></p>
+    <p class="muted"><span>Total en letras</span><span>${escapeHtml(amountInWords(savedOrder.total))}</span></p>
     <p><span>Abono recibido</span><span>${money(savedOrder.paid)}</span></p>
     <p class="grand-total"><span>Saldo pendiente</span><span>${money(Math.max(savedOrder.total - savedOrder.paid, 0))}</span></p>
+    <p class="muted"><span>Saldo en letras</span><span>${escapeHtml(amountInWords(Math.max(savedOrder.total - savedOrder.paid, 0)))}</span></p>
   </section>
-  <footer class="muted">Este desprendible corresponde al pedido ${escapeHtml(savedOrder.id)}.</footer>
+  <footer class="muted">Pedido ${escapeHtml(savedOrder.id)}.</footer>
 </body>
 </html>`
 
     const printWindow = window.open("", "_blank")
     if (!printWindow) {
-      toast.error("El navegador bloqueó la ventana del desprendible. Permite ventanas emergentes e inténtalo de nuevo.")
+      toast.error("El navegador bloqueó la ventana del pedido. Permite ventanas emergentes e inténtalo de nuevo.")
       return
     }
 
@@ -1082,8 +1125,15 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
     printWindow.document.getElementById("print-receipt")?.addEventListener("click", () => {
       printWindow.print()
     })
-    printWindow.focus()
-    window.setTimeout(() => printWindow.print(), 250)
+    void waitForCompanyLogo(printWindow.document.querySelector(".company-brand img"))
+      .then(() => {
+        printWindow.focus()
+        window.setTimeout(() => printWindow.print(), 100)
+      })
+      .catch((error: unknown) => {
+        printWindow.close()
+        toast.error(error instanceof Error ? error.message : "No se pudo preparar el logo para imprimir.")
+      })
   }
 
   function handleWizardSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1535,7 +1585,7 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                 <CardHeader>
                   <CardTitle>Desglose individual</CardTitle>
                   <CardDescription>
-                    Define el valor de cada prenda. Sobrecostos y descuentos permanecen dentro de los ajustes de cada fila.
+                    El precio se carga desde inventario según la prenda y puedes modificarlo. Sobrecostos y descuentos permanecen dentro de los ajustes de cada fila.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1552,6 +1602,9 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       <TableBody>
                         {items.fields.map((row, index) => {
                           const currentItem = watchedItems[index] ?? defaultItem("", "")
+                          const inventoryPrice = inventory?.products.find(
+                            (product) => product.name === currentItem.garment,
+                          )?.price
                           const surcharge = surchargeFor(currentItem)
                           const discount = discountFor(currentItem)
                           const netPrice = Math.max(0, currentItem.unitPrice + surcharge - discount)
@@ -1594,6 +1647,11 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                                   />
                                   {currentItem.priceManuallyEdited && (
                                     <Badge variant="outline" className="text-[10px]">Editado manualmente</Badge>
+                                  )}
+                                  {!currentItem.priceManuallyEdited && inventoryPrice !== undefined && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Precio de inventario: {money(inventoryPrice)}
+                                    </p>
                                   )}
                                   <FieldError errors={[form.formState.errors.items?.[index]?.unitPrice]} />
                                 </div>
@@ -1895,12 +1953,12 @@ export function OrderWizard({ salespersonNames }: { salespersonNames: string[] }
                       <div>
                         <p className="font-medium">Pedido {savedOrder.id} guardado</p>
                         <p className="text-sm opacity-80">
-                          El desprendible del pedido está listo para descargar.
+                          El comprobante del pedido está listo para descargar.
                         </p>
                       </div>
                       <div>
                         <Button className="w-full" onClick={downloadReceipt} type="button">
-                          Descargar desprendible PDF
+                          Descargar pedido PDF
                         </Button>
                       </div>
                       <p className="text-xs opacity-80">

@@ -33,6 +33,11 @@ import {
 import { shareQuotationPdf } from "@/lib/orders/share-pdf"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import {
+  amountInWords,
+  companyDocumentHeaderMarkup,
+  waitForCompanyLogo,
+} from "@/lib/orders/document-format"
+import {
   convertSupabaseQuotationToOrder,
   loadSupabaseQuotations,
   moveSupabaseQuotationToTrash,
@@ -101,6 +106,10 @@ function printQuotation(quotation: LoadedQuotation) {
     @page { size: A4; margin: 18mm; }
     body { color: #172033; font: 14px/1.5 Arial, sans-serif; margin: 0 auto; max-width: 760px; }
     header { border-bottom: 2px solid #172033; margin-bottom: 24px; padding-bottom: 16px; }
+    .company-brand { align-items: center; display: flex; gap: 14px; margin-bottom: 16px; }
+    .company-brand img { height: 54px; object-fit: contain; width: 110px; }
+    .company-brand strong, .company-brand span { display: block; }
+    .company-brand span { color: #667085; font-size: 12px; }
     h1 { font-size: 24px; margin: 0 0 4px; }
     h2 { font-size: 16px; margin: 28px 0 10px; }
     .muted { color: #667085; }
@@ -121,6 +130,7 @@ function printQuotation(quotation: LoadedQuotation) {
 <body>
   <button class="print-button" id="print-quotation">Descargar o imprimir como PDF</button>
   <header>
+    ${companyDocumentHeaderMarkup()}
     <h1>Cotización ${escapeHtml(quotation.quote_number)}</h1>
     <div class="muted">${escapeHtml(new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(new Date()))}</div>
   </header>
@@ -138,6 +148,7 @@ function printQuotation(quotation: LoadedQuotation) {
     <tbody>${printableRows(quotation.items)}</tbody>
   </table>
   <p class="total">Total: ${escapeHtml(money(Number(quotation.grand_total)))}</p>
+  <p class="muted"><strong>Valor total en letras:</strong> ${escapeHtml(amountInWords(Number(quotation.grand_total)))}</p>
   ${references ? `<h2>Imágenes de referencia</h2><section class="references">${references}</section>` : ""}
   <footer class="muted">Cotización ${escapeHtml(quotation.quote_number)} · No constituye un pedido confirmado.</footer>
 </body>
@@ -160,8 +171,15 @@ function printQuotation(quotation: LoadedQuotation) {
       image.addEventListener("error", () => resolve(), { once: true })
     })
   }))
-  void imagesLoaded.then(() => window.setTimeout(printOnce, 100))
-  window.setTimeout(printOnce, 5000)
+  const companyLogoLoaded = waitForCompanyLogo(
+    printWindow.document.querySelector(".company-brand img"),
+  )
+  void Promise.all([imagesLoaded, companyLogoLoaded])
+    .then(() => window.setTimeout(printOnce, 100))
+    .catch((error: unknown) => {
+      printWindow.close()
+      toast.error(error instanceof Error ? error.message : "No se pudo preparar el logo para imprimir.")
+    })
 }
 
 type PeriodMode = "week" | "month"

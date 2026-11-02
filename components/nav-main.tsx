@@ -1,5 +1,6 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import {
   SidebarGroupContent,
   SidebarMenu,
@@ -16,12 +17,20 @@ export function NavMain({
     icon?: React.ReactNode
   }[]
 }) {
+  const pathname = usePathname()
+
   return (
     <SidebarGroupContent>
       <SidebarMenu>
         {items.map((item) => (
           <SidebarMenuItem key={item.title}>
-            <SidebarMenuButton tooltip={item.title} render={<a href={item.url} />}>
+            <SidebarMenuButton
+              isActive={pathname === item.url || (
+                item.url !== "/dashboard" && pathname.startsWith(`${item.url}/`)
+              )}
+              tooltip={item.title}
+              render={<a href={item.url} />}
+            >
               {item.icon}
               <span>{item.title}</span>
             </SidebarMenuButton>

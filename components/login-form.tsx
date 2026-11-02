@@ -157,7 +157,7 @@ export function LoginForm({
 
               <Field>
                 <Button
-                  className="h-12 w-full rounded-xl bg-gradient-to-b from-slate-800 to-black text-sm font-semibold shadow-[0_8px_18px_-8px_rgba(0,0,0,0.65)] transition-all hover:-translate-y-0.5 hover:from-slate-700 hover:to-slate-950 hover:shadow-[0_12px_22px_-10px_rgba(0,0,0,0.7)]"
+                  className="h-12 w-full rounded-xl bg-gradient-to-b from-red-600 to-red-800 text-sm font-semibold shadow-[0_8px_18px_-8px_rgba(153,27,27,0.5)] transition-all hover:-translate-y-0.5 hover:from-red-500 hover:to-red-900 hover:shadow-[0_12px_22px_-10px_rgba(153,27,27,0.55)]"
                   disabled={isSubmitting}
                   type="submit"
                 >

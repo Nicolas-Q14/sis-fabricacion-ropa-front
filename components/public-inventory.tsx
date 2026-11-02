@@ -177,9 +177,13 @@ export function PublicInventory() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link className="flex items-center gap-2 font-semibold" href="/inventario">
-            <span className="flex size-9 items-center justify-center rounded-lg bg-red-600 text-white">
-              <ShirtIcon className="size-5" />
-            </span>
+            <Image
+              alt="Frenesi Sport"
+              className="size-9 rounded-lg"
+              height={36}
+              src="/favicon-32x32.png"
+              width={36}
+            />
             <span>Frenesi Sport</span>
           </Link>
           <Button nativeButton={false} render={<Link href="/login" />} size="sm" variant="outline">

@@ -4,6 +4,15 @@ import { jsPDF } from "jspdf"
 import { toast } from "sonner"
 import type { OrderGarment, DemoOrder } from "@/lib/orders/demo-data"
 import { createClient } from "@/lib/supabase/client"
+import {
+  amountInWords,
+  companyAddress,
+  companyEmail,
+  companyLogoPath,
+  companyName,
+  companyNit,
+  companyPhone,
+} from "@/lib/orders/document-format"
 
 const pdfShareBucket = "order-pdf-shares"
 const signedUrlExpirationSeconds = 60 * 60 * 24 * 7
@@ -89,13 +98,34 @@ function quotationPdfData(quotation: QuotationPdfData): PdfDocument {
   }
 }
 
-function createPdfFile(data: PdfDocument) {
+async function loadCompanyLogo() {
+  const response = await fetch(new URL(companyLogoPath, window.location.origin))
+  if (!response.ok) {
+    throw new Error(`No se pudo cargar el logo de la empresa (${response.status}).`)
+  }
+
+  const logo = await response.blob()
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("No se pudo preparar el logo de la empresa para el PDF."))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer el logo de la empresa."))
+    reader.readAsDataURL(logo)
+  })
+}
+
+async function createPdfFile(data: PdfDocument) {
   const pdf = new jsPDF({ format: "a4", unit: "mm" })
   const left = 18
   const right = 192
   const width = right - left
   const bottom = 274
-  let y = 24
+  let y = 58
 
   const ensureSpace = (height: number) => {
     if (y + height > bottom) {
@@ -114,15 +144,25 @@ function createPdfFile(data: PdfDocument) {
     y += lines.length * lineHeight + (options?.gap ?? 2)
   }
 
+  const logo = await loadCompanyLogo()
+  pdf.addImage(logo, "PNG", left, 12, 34, 20)
+  pdf.setTextColor(23, 32, 51)
+  pdf.setFont("helvetica", "bold")
+  pdf.setFontSize(12)
+  pdf.text(companyName, left + 40, 20)
+  pdf.setFont("helvetica", "normal")
+  pdf.setFontSize(9)
+  pdf.text(`NIT: ${companyNit}`, left + 40, 26)
+  pdf.setFontSize(8)
+  pdf.text(companyAddress, left + 40, 30)
+  pdf.text(`Tel. ${companyPhone} · ${companyEmail}`, left + 40, 34)
   pdf.setTextColor(23, 32, 51)
   pdf.setFont("helvetica", "bold")
   pdf.setFontSize(18)
-  pdf.text(`${data.type} ${data.id}`, left, y)
-  y += 8
+  pdf.text(`${data.type} ${data.id}`, left, 43)
   pdf.setDrawColor(23, 32, 51)
   pdf.setLineWidth(0.7)
-  pdf.line(left, y, right, y)
-  y += 9
+  pdf.line(left, 49, right, 49)
 
   addText(`Cliente: ${data.customer}`)
   addText(`Vendedor: ${data.salesperson}`)
@@ -173,9 +213,12 @@ function createPdfFile(data: PdfDocument) {
   pdf.setFontSize(13)
   pdf.text(`Total: ${money(data.total)}`, right, y, { align: "right" })
   y += 8
+  addText(`Valor total en letras: ${amountInWords(data.total)}`)
   if (data.paid !== undefined) {
     addText(`Abonado: ${money(data.paid)}`)
-    addText(`Saldo pendiente: ${money(Math.max(0, data.total - data.paid))}`)
+    const balance = Math.max(0, data.total - data.paid)
+    addText(`Saldo pendiente: ${money(balance)}`)
+    addText(`Saldo pendiente en letras: ${amountInWords(balance)}`)
   }
 
   if (data.referenceImageUrls?.length) {
@@ -237,7 +280,7 @@ async function sharePdf(companyId: string, data: PdfDocument) {
   whatsappWindow.opener = null
 
   try {
-    const file = createPdfFile(data)
+    const file = await createPdfFile(data)
     const pdfUrl = await uploadPdf(companyId, file)
     const message = `Te comparto el PDF de ${data.type.toLocaleLowerCase("es")} ${data.id}: ${pdfUrl}`
     whatsappWindow.location.href = `https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`

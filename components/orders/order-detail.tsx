@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { toast } from "sonner"
 import {
@@ -52,6 +53,15 @@ import { GarmentTraceSheet } from "@/components/orders/garment-trace-sheet"
 import { Progress } from "@/components/ui/progress"
 import { useOrdersOperator } from "@/components/orders/orders-operator-context"
 import { shareOrderPdf } from "@/lib/orders/share-pdf"
+import {
+  amountInWords,
+  companyAddress,
+  companyEmail,
+  companyLogoPath,
+  companyName,
+  companyNit,
+  companyPhone,
+} from "@/lib/orders/document-format"
 
 type PendingDelivery = {
   itemIds: string[]
@@ -210,10 +220,17 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
       <div className="print-area grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
         <div className="col-span-full hidden print:block">
+          <div className="mb-4 flex items-center gap-4">
+            <Image alt={companyName} height={48} src={companyLogoPath} width={110} />
+            <div>
+              <p className="font-semibold">{companyName}</p>
+              <p className="text-sm">NIT: {companyNit}</p>
+              <p className="text-sm">{companyAddress}</p>
+              <p className="text-sm">Tel. {companyPhone} · {companyEmail}</p>
+            </div>
+          </div>
           <h1 className="text-2xl font-semibold">Planilla de taller · {order.id}</h1>
-          <p className="mt-1 text-sm">
-            {order.customer} · {order.quantity} prendas · Entrega {formatShortDate(order.dueDate)}
-          </p>
+          <p className="mt-1 text-sm">{order.customer} · {order.quantity} prendas · Entrega {formatShortDate(order.dueDate)}</p>
           <Separator className="mt-4" />
         </div>
         <div className="space-y-5">
@@ -359,6 +376,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
                 <span className="font-medium">Saldo pendiente</span>
                 <span className="text-lg font-semibold tabular-nums">{formatCurrency(balance)}</span>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Saldo en letras: {amountInWords(balance)}
+              </p>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Estado del pago</span>
                 <Badge variant={getPaymentStatus(order) === "Pagado" ? "secondary" : "outline"}>
