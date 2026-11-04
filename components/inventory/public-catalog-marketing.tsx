@@ -34,7 +34,10 @@ type PublicCatalogBannerProps = {
 
 export function PublicCatalogBanner({ banner }: PublicCatalogBannerProps) {
   return (
-    <section className="relative isolate overflow-hidden rounded-2xl bg-slate-900 px-6 py-10 text-white sm:px-10 sm:py-14">
+    <section
+      className="relative isolate flex min-h-[22rem] items-center overflow-hidden rounded-2xl px-6 py-12 text-white shadow-xl shadow-red-950/10 sm:min-h-[28rem] sm:px-12 sm:py-16"
+      style={{ backgroundColor: "#7f1019" }}
+    >
       {banner?.image_url ? (
         <Image
           alt={banner.alt_text}
@@ -46,28 +49,39 @@ export function PublicCatalogBanner({ banner }: PublicCatalogBannerProps) {
           unoptimized
         />
       ) : (
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_75%_30%,rgba(220,38,38,0.5),transparent_45%),linear-gradient(120deg,#111827,#334155)]" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse at 78% 32%, rgba(255,255,255,0.2), transparent 35%), linear-gradient(115deg, #540b12, #a30e17 58%, #e11d2e)",
+          }}
+        />
       )}
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-900/75 to-slate-900/30"
+        className="absolute inset-0"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, rgba(67,8,14,0.9), rgba(113,11,21,0.65) 58%, rgba(143,16,24,0.15))",
+        }}
       />
-      <div className="relative max-w-2xl space-y-5">
+      <div className="relative max-w-2xl space-y-5 sm:space-y-6">
         <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white">
-          Inventario Frenesi Sport
+          NUEVA COLECCIÓN · FRENESI SPORT
         </span>
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">
-          Prendas para cada equipo y cada temporada.
+        <h1 className="text-4xl font-bold leading-[1.05] tracking-tight sm:text-6xl">
+          Viste tu pasión. <span className="text-red-200">Juega con estilo.</span>
         </h1>
-        <p className="max-w-xl text-sm text-slate-200 sm:text-base">
-          Explora nuestro catálogo organizado por colección, categoría y tipo de prenda.
-          Consulta tallas y existencias actualizadas.
+        <p className="max-w-xl text-sm leading-relaxed text-white/85 sm:text-base">
+          Encuentra prendas deportivas para cada equipo y temporada. Explora las
+          referencias, tallas y existencias disponibles ahora.
         </p>
         <Button
-          className="bg-white text-slate-950 hover:bg-slate-100"
+          className="bg-white font-semibold text-red-800 shadow-lg shadow-black/10 hover:bg-red-50"
           onClick={() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth" })}
         >
-          Explorar catálogo
+          Consultar inventario actual
         </Button>
       </div>
     </section>
