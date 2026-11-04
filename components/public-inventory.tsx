@@ -34,6 +34,7 @@ import {
   INVENTORY_FAMILIES,
   type InventoryFamily,
 } from "@/lib/inventory/catalog-structure"
+import { PUBLIC_WHATSAPP_PHONE } from "@/lib/inventory/public-whatsapp"
 import { createClient } from "@/lib/supabase/client"
 import {
   PublicCatalogBanner,
@@ -80,7 +81,6 @@ type FolderSelection =
 const knownYears = [2024, 2025, 2026]
 const familyLabels = Object.keys(INVENTORY_FAMILIES) as InventoryFamily[]
 const featuredCategories = ["camisetas", "busos_capota", "sudaderas", "pantalonetas"]
-const whatsappPhone = "573124157146"
 
 function folderKey(folder: FolderSelection) {
   return folder.kind === "all" || folder.kind === "gallery"
@@ -362,7 +362,7 @@ export function PublicInventory() {
     "",
     "Por favor, confirmen el precio y disponibilidad para continuar con la compra.",
   ].join("\n")
-  const whatsappOrderUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(orderMessage)}`
+  const whatsappOrderUrl = `https://wa.me/${PUBLIC_WHATSAPP_PHONE}?text=${encodeURIComponent(orderMessage)}`
   const selectedFolder = folderKey(folder)
   const isGallerySelected = folder.kind === "gallery"
 

@@ -26,6 +26,10 @@ import type {
   PublicCatalogFooterData,
   PublicCatalogSlide,
 } from "@/lib/inventory/use-public-catalog-marketing"
+import {
+  PUBLIC_WHATSAPP_DISPLAY_PHONE,
+  PUBLIC_WHATSAPP_PHONE,
+} from "@/lib/inventory/public-whatsapp"
 import { createClient } from "@/lib/supabase/client"
 
 type PublicCatalogBannerProps = {
@@ -242,9 +246,7 @@ type PublicCatalogFooterProps = {
 }
 
 export function PublicCatalogFooter({ footer }: PublicCatalogFooterProps) {
-  const whatsappUrl = footer?.whatsapp_phone
-    ? `https://wa.me/${footer.whatsapp_phone}`
-    : null
+  const whatsappUrl = `https://wa.me/${PUBLIC_WHATSAPP_PHONE}`
 
   return (
     <footer className="relative isolate overflow-hidden rounded-2xl bg-slate-950 text-white">
@@ -280,16 +282,15 @@ export function PublicCatalogFooter({ footer }: PublicCatalogFooterProps) {
           <p className="text-sm text-white/70">
             {footer?.description || "Contáctanos para recibir atención personalizada."}
           </p>
-          {whatsappUrl && (
-            <a
-              className="inline-flex rounded-full border border-white/35 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-white/10"
-              href={whatsappUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {footer?.whatsapp_label || "Escríbenos por WhatsApp"}
-            </a>
-          )}
+          <a
+            className="inline-flex rounded-full border border-white/35 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-white/10"
+            href={whatsappUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {footer?.whatsapp_label || "Escríbenos por WhatsApp"}
+          </a>
+          <p className="text-xs text-white/70">WhatsApp · {PUBLIC_WHATSAPP_DISPLAY_PHONE}</p>
         </div>
 
         {footer?.qr_url && (
@@ -337,7 +338,6 @@ export function PublicCatalogMarketingEditor({
   const [footerDescription, setFooterDescription] = useState(
     footer?.description ?? "Contáctanos para recibir atención personalizada.",
   )
-  const [footerPhone, setFooterPhone] = useState(footer?.whatsapp_phone ?? "")
   const [footerWhatsappLabel, setFooterWhatsappLabel] = useState(
     footer?.whatsapp_label ?? "Escríbenos por WhatsApp",
   )
@@ -435,9 +435,6 @@ export function PublicCatalogMarketingEditor({
       if (!footerTitle.trim() || !footerDescription.trim() || !footerWhatsappLabel.trim()) {
         throw new Error("Completa el título, descripción y texto del botón del footer.")
       }
-      if (footerPhone && !/^\d{8,15}$/.test(footerPhone)) {
-        throw new Error("El número de WhatsApp debe tener entre 8 y 15 dígitos, incluido el código de país.")
-      }
       if ((footerQrFile || (footer?.qr_url && !removeFooterQr)) && !footerQrAlt.trim()) {
         throw new Error("Escribe un texto alternativo para el código QR.")
       }
@@ -467,7 +464,7 @@ export function PublicCatalogMarketingEditor({
         background_url: backgroundUrl,
         title: footerTitle.trim(),
         description: footerDescription.trim(),
-        whatsapp_phone: footerPhone.trim(),
+        whatsapp_phone: PUBLIC_WHATSAPP_PHONE,
         whatsapp_label: footerWhatsappLabel.trim(),
         qr_path: qrPath,
         qr_url: qrUrl,
@@ -767,12 +764,12 @@ export function PublicCatalogMarketingEditor({
             <label className="space-y-1.5 text-sm font-medium">
               Número de WhatsApp
               <Input
-                inputMode="numeric"
-                maxLength={15}
-                onChange={(event) => setFooterPhone(event.target.value.replace(/\D/g, ""))}
-                placeholder="573001234567"
-                value={footerPhone}
+                readOnly
+                value={PUBLIC_WHATSAPP_PHONE}
               />
+              <span className="block text-xs font-normal text-muted-foreground">
+                Este es el número de contacto utilizado en la tienda pública y en los pedidos.
+              </span>
             </label>
             <label className="space-y-1.5 text-sm font-medium sm:col-span-2">
               Descripción
