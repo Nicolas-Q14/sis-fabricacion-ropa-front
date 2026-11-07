@@ -22,6 +22,15 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { appRoleLabels, type AppRole } from "@/lib/auth/roles"
 import { LogOutIcon, Settings2Icon, UserRoundIcon } from "lucide-react"
@@ -37,6 +46,7 @@ export function NavUser({
   const { isMobile } = useSidebar()
   const router = useRouter()
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [isSignOutDialogOpen, setIsSignOutDialogOpen] = useState(false)
   const initials = user.name
     .split(/\s+/)
     .filter(Boolean)
@@ -55,6 +65,7 @@ export function NavUser({
         return
       }
 
+      setIsSignOutDialogOpen(false)
       router.replace("/login")
       router.refresh()
     } catch {
@@ -109,10 +120,10 @@ export function NavUser({
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={isSigningOut}
-              onClick={handleSignOut}
+              onClick={() => setIsSignOutDialogOpen(true)}
             >
               <LogOutIcon />
-              {isSigningOut ? "Cerrando sesión..." : "Cerrar sesión"}
+              Cerrar sesión
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -120,13 +131,44 @@ export function NavUser({
       <SidebarMenuItem>
         <SidebarMenuButton
           disabled={isSigningOut}
-          onClick={handleSignOut}
+          onClick={() => setIsSignOutDialogOpen(true)}
           tooltip="Cerrar sesión"
         >
           <LogOutIcon />
-          <span>{isSigningOut ? "Cerrando sesión..." : "Cerrar sesión"}</span>
+          <span>Cerrar sesión</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!isSigningOut) setIsSignOutDialogOpen(open)
+        }}
+        open={isSignOutDialogOpen}
+      >
+        <DialogContent showCloseButton={!isSigningOut}>
+          <DialogHeader>
+            <DialogTitle>¿Cerrar sesión?</DialogTitle>
+            <DialogDescription>
+              Se cerrará tu sesión y volverás a la pantalla de inicio de sesión.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              disabled={isSigningOut}
+              onClick={() => setIsSignOutDialogOpen(false)}
+              variant="outline"
+            >
+              Cancelar
+            </Button>
+            <Button
+              disabled={isSigningOut}
+              onClick={() => void handleSignOut()}
+              variant="destructive"
+            >
+              {isSigningOut ? "Cerrando sesión..." : "Cerrar sesión"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarMenu>
   )
 }
